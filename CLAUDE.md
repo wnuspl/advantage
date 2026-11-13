@@ -69,7 +69,7 @@ All Sackmann-derived data is **CC BY-NC-SA 4.0**: attribution required, non-comm
 2. **Fetch** both sources (`scripts/fetch_data.py`), then **inspect** the real files: players file, a yearly matches file (date format, round labels, score format, stats columns), the mirror's actual layout, and how an MCP match identifier encodes date, tournament, round and names.
 3. **Load Sackmann backbone:** players, tournaments/editions, matches, `match_player_stats`, rankings. Check counts against the CSVs via `load_run`.
 4. **MCP resolution:** players, editions, matches through the cascade, then `point`. Report coverage and review-queue size. Spot-check actual merges by hand.
-5. **Baseline:** surface-aware Elo/Glicko from `v_player_match`, walk-forward log loss. Plain Elo done (`elo_v1`, `scripts/elo_sweep.py`, results in `models.db` and DESIGN.md); surface split, calibration and Glicko-2 to follow.
+5. **Baseline:** surface-aware Elo/Glicko from `v_player_match`, walk-forward log loss. Surface Elo done (`elo_v1`, `scripts/elo_sweep.py`; baseline = run 132: tour test log loss 0.6076, see DESIGN.md). Glicko-2 to follow.
 6. **Style features + PCA** (fit per fold), then the interaction model on top of the baseline.
 7. **Glicko-style light layer** on residuals vs the heavy layer. Compare against the baseline.
 8. **Odds benchmark**, and the daily feed once the backbone is stable.

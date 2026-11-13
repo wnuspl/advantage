@@ -22,10 +22,12 @@ DEFAULT_BLOCKS = {"val": ("2019-01-01", "2021-12-31"), "test": ("2022-01-01", "2
 SCOPES = ("tour", "tour_atp", "tour_wta", "all")
 PRIMARY_SCOPE = "tour"
 
-# Default sweep: the decaying-K family around FiveThirtyEight-style values, plus constant K.
+# Default sweep: around the best plain-Elo setting of sweep default-v1 (k=150, shape=0.3,
+# retirements counted), with surface ratings. blend is prediction-only, so each update
+# setting is run once and scored at every blend value.
 DEFAULT_GRID = [
-    {"k": [100, 150, 250, 350], "offset": [5], "shape": [0.3, 0.4, 0.5], "retired_weight": [0.0, 0.5, 1.0]},
-    {"k": [16, 24, 32, 48], "shape": [0.0], "retired_weight": [1.0]},
+    {"k": [100, 150, 200], "offset": [5], "shape": [0.2, 0.25, 0.3], "retired_weight": [1.0],
+     "surface_init": [0.0, 1.0], "blend": [0.0, 0.25, 0.5, 0.75, 1.0]},
 ]
 
 
@@ -86,24 +88,31 @@ def _write_metrics(con, run_id, block, date_from, date_to, scores: dict[str, Sco
     con.commit()
 
 
-def score_block(prep: Prepared, res: elo.EloResult, date_from: str, date_to: str) -> dict[str, Score]:
-    return {sc: score(res.p_winner, prep.winner_is_p1, prep.indices(date_from, date_to, sc))
+def score_block(prep: Prepared, p_winner, date_from: str, date_to: str) -> dict[str, Score]:
+    return {sc: score(p_winner, prep.winner_is_p1, prep.indices(date_from, date_to, sc))
             for sc in SCOPES}
 
 
 def sweep(con, prep: Prepared, grid: list[elo.EloParams], *, sweep_id: str,
           val: tuple[str, str] = DEFAULT_BLOCKS["val"], progress=print) -> list[tuple[int, Score]]:
-    out = []
-    for i, p in enumerate(grid, 1):
-        run_id = models_db.start_run(con, MODEL_ID, p.as_dict(), sweep_id=sweep_id)
-        res = elo.run(prep.m, p)
-        scores = score_block(prep, res, *val)
-        _write_metrics(con, run_id, "val", *val, scores)
-        models_db.finish_run(con, run_id)
-        s = scores[PRIMARY_SCOPE]
-        out.append((run_id, s))
-        progress(f"[{i}/{len(grid)}] run {run_id} {json.dumps(p.as_dict())}  "
-                 f"val {PRIMARY_SCOPE} log_loss={s.log_loss:.4f} brier={s.brier:.4f} acc={s.accuracy:.3f}")
+    """One full-history pass per distinct update setting; every blend value of that
+    setting is scored from the same pass. Each (setting, blend) is its own model_run."""
+    groups: dict[elo.EloParams, list[elo.EloParams]] = {}
+    for p in grid:
+        groups.setdefault(p.update_key(), []).append(p)
+    out, done = [], 0
+    for g, (key, members) in enumerate(groups.items(), 1):
+        res = elo.run(prep.m, key)
+        for p in members:
+            run_id = models_db.start_run(con, MODEL_ID, p.as_dict(), sweep_id=sweep_id)
+            scores = score_block(prep, elo.predict(res, p.blend), *val)
+            _write_metrics(con, run_id, "val", *val, scores)
+            models_db.finish_run(con, run_id)
+            s = scores[PRIMARY_SCOPE]
+            out.append((run_id, s))
+            done += 1
+            progress(f"[{done}/{len(grid)} pass {g}/{len(groups)}] run {run_id} {json.dumps(p.as_dict())}  "
+                     f"val {PRIMARY_SCOPE} log_loss={s.log_loss:.4f} brier={s.brier:.4f} acc={s.accuracy:.3f}")
     return out
 
 
@@ -131,7 +140,7 @@ def finalize(con, prep: Prepared, run_id: int, *, test: tuple[str, str] = DEFAUL
              save_predictions: bool = False) -> dict[str, Score]:
     """Score the held-out test block for one chosen run; optionally save per-match rows."""
     res = elo.run(prep.m, params_of(con, run_id))
-    scores = score_block(prep, res, *test)
+    scores = score_block(prep, res.p_winner, *test)
     _write_metrics(con, run_id, "test", *test, scores)
     if save_predictions:
         _save(con, prep, run_id, res)
@@ -151,8 +160,9 @@ def _save(con, prep: Prepared, run_id: int, res: elo.EloResult) -> None:
             preds.append((run_id, key, m.start[i], pk[w], pk[l], pw, 1))
         else:
             preds.append((run_id, key, m.start[i], pk[l], pk[w], 1.0 - pw, 0))
-        rats.append((run_id, key, pk[w], res.r_winner[i], None, None, res.n_winner[i]))
-        rats.append((run_id, key, pk[l], res.r_loser[i], None, None, res.n_loser[i]))
+        sw, sl = res.s_winner[i], res.s_loser[i]
+        rats.append((run_id, key, pk[w], res.r_winner[i], sw if sw == sw else None, None, res.n_winner[i]))
+        rats.append((run_id, key, pk[l], res.r_loser[i], sl if sl == sl else None, None, res.n_loser[i]))
         if len(preds) >= 100_000:
             _flush(con, preds, rats)
     _flush(con, preds, rats)

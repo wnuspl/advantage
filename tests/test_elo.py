@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 import sys
 import unittest
-from array import array
 from contextlib import closing
 from pathlib import Path
 
@@ -17,12 +16,13 @@ from test_build import Workspace                # noqa: E402
 
 
 def matches(rows):
-    """rows: (winner, loser, start, status[, tour_level])"""
-    m = elo.Matches(array("q"), array("q"), array("q"), [], [], bytearray(), [])
+    """rows: (winner, loser, start, status[, surface])"""
+    m = elo.empty_matches()
     for i, r in enumerate(rows):
         m.match_id.append(i + 1); m.winner.append(r[0]); m.loser.append(r[1])
         m.start.append(r[2]); m.status.append(r[3]); m.tour.append("atp")
-        m.tour_level.append(r[4] if len(r) > 4 else 1)
+        m.surface.append(r[4] if len(r) > 4 else "hard")
+        m.tour_level.append(1)
     return m
 
 
@@ -62,6 +62,43 @@ class EloTest(unittest.TestCase):
             self.assertEqual(list(part.p_winner), list(full.p_winner[:cut]))
 
 
+class SurfaceEloTest(unittest.TestCase):
+    ROWS = [(1, 2, "2020-01-01", "completed", "clay"), (1, 2, "2020-01-08", "completed", "clay"),
+            (2, 1, "2020-01-15", "completed", "grass"), (1, 2, "2020-01-22", "completed", None),
+            (2, 1, "2020-01-29", "completed", "grass")]
+
+    def test_blend_zero_is_plain_elo(self):
+        plain = elo.run(matches(self.ROWS), elo.EloParams(k=32, shape=0))
+        self.assertEqual(list(plain.p_winner), list(elo.predict(plain, 0.0)))
+        # overall ratings never depend on blend
+        b = elo.run(matches(self.ROWS), elo.EloParams(k=32, shape=0, blend=0.7))
+        self.assertEqual(list(plain.r_winner), list(b.r_winner))
+
+    def test_surface_ratings_move_only_on_their_surface(self):
+        res = elo.run(matches(self.ROWS), elo.EloParams(k=32, shape=0))
+        self.assertEqual((res.s_winner[1], res.s_loser[1]), (1516.0, 1484.0))   # clay after 1 clay win
+        self.assertEqual((res.s_winner[2], res.s_loser[2]), (1500.0, 1500.0))   # first grass match
+        self.assertTrue(res.s_winner[3] != res.s_winner[3])                     # no surface: NaN
+        self.assertEqual(res.s_winner[4], 1516.0)                               # grass: only the grass match
+        self.assertEqual(res.n_winner[4], 4)                                    # overall counts every match
+
+    def test_surface_init_from_overall(self):
+        res = elo.run(matches(self.ROWS), elo.EloParams(k=32, shape=0, surface_init=1.0))
+        # player 2's first grass rating = their overall after two clay losses
+        self.assertEqual(res.s_winner[2], res.r_winner[2])
+
+    def test_blend_one_uses_surface_rating_only(self):
+        p = elo.EloParams(k=32, shape=0, blend=1.0)
+        res = elo.run(matches(self.ROWS), p)
+        self.assertAlmostEqual(res.p_winner[2], 0.5)                 # equal grass ratings
+        self.assertAlmostEqual(elo.predict(res, 1.0)[2], 0.5)
+        self.assertNotAlmostEqual(elo.run(matches(self.ROWS), elo.EloParams(k=32, shape=0)).p_winner[2], 0.5)
+        self.assertEqual(res.p_winner[3], elo.predict(res, 0.0)[3])  # no surface: overall only
+
+    def test_update_key_ignores_blend(self):
+        self.assertEqual(elo.EloParams(blend=0.3).update_key(), elo.EloParams(blend=0.9).update_key())
+
+
 class ScoreTest(unittest.TestCase):
     def test_coin_flip(self):
         s = score([0.5, 0.5], bytearray([1, 0]), [0, 1])
@@ -95,11 +132,19 @@ class SweepEndToEndTest(unittest.TestCase):
                 prep = tuning.prepare(con)
                 self.assertEqual(len(prep.m), 7)
                 val = ("2020-01-01", "2020-01-19")             # Brisbane + ITF weeks
-                out = tuning.sweep(con, prep, tuning.expand_grid({"k": [32, 64], "shape": [0.0]}),
-                                   sweep_id="t", val=val, progress=lambda *_: None)
-                self.assertEqual(len(out), 2)
+                passes = []
+                real_run = tuning.elo.run
+                tuning.elo.run = lambda m, p: passes.append(p) or real_run(m, p)
+                try:
+                    out = tuning.sweep(con, prep, tuning.expand_grid(
+                        {"k": [32, 64], "shape": [0.0], "blend": [0.0, 0.5]}),
+                        sweep_id="t", val=val, progress=lambda *_: None)
+                finally:
+                    tuning.elo.run = real_run
+                self.assertEqual(len(out), 4)
+                self.assertEqual(len(passes), 2)                  # blend reuses the same pass
                 board = tuning.leaderboard(con, sweep_id="t", scope="all")
-                self.assertEqual(len(board), 2)
+                self.assertEqual(len(board), 4)
                 self.assertLessEqual(board[0][4], board[1][4])  # sorted by val log loss
                 # Brisbane final is a walkover: not scored. Tour scope = Brisbane only -> 0 rows.
                 n_all = con.execute("""SELECT n FROM run_metric WHERE block='val' AND scope='all'
@@ -113,6 +158,8 @@ class SweepEndToEndTest(unittest.TestCase):
                 self.assertEqual(con.execute("SELECT COUNT(*) FROM pre_match_rating").fetchone()[0], 14)
                 self.assertEqual(con.execute(
                     "SELECT COUNT(*) FROM prediction WHERE NOT p1_key < p2_key").fetchone()[0], 0)
+                self.assertEqual(con.execute(
+                    "SELECT COUNT(*) FROM pre_match_rating WHERE surface_rating IS NULL").fetchone()[0], 0)
                 # same parameters, same answer
                 again = tuning.finalize(con, prep, run_id, test=("2020-01-20", "2020-12-31"))
                 self.assertEqual(again["tour"].log_loss, scores["tour"].log_loss)

@@ -89,9 +89,10 @@ Code: `src/tennis/build.py`. The database is disposable; a build always starts f
 
 ## Elo baseline (`elo_v1`)
 
-Code: `src/tennis/elo.py` (engine), `src/tennis/evaluate.py` (scoring), `src/tennis/tuning.py` + `scripts/elo_sweep.py` (sweeps). Plain Elo: one overall rating per player (no surface split yet), ATP and WTA naturally separate because their players never meet.
+Code: `src/tennis/elo.py` (engine), `src/tennis/evaluate.py` (scoring), `src/tennis/tuning.py` + `scripts/elo_sweep.py` (sweeps). Elo with an overall rating plus one rating per surface (`blend = 0` is plain overall Elo). ATP and WTA are naturally separate because their players never meet.
 
-- **Model:** P(a beats b) = 1 / (1 + 10^((r_b - r_a)/400)). After a match each rating moves by K(n) * weight * (result - expected), with K(n) = k / (n + offset)^shape, where n is the player's rated matches so far (shape = 0 gives constant K). New players start at `init`.
+- **Model:** P(a beats b) = 1 / (1 + 10^((R_b - R_a)/400)) with R = (1 - blend) * overall + blend * surface rating. After a match each rating moves by K(n) * weight * (result - its own expected score), with K(n) = k / (n + offset)^shape (shape = 0 gives constant K). For the overall rating n counts all rated matches; for a surface rating, only matches on that surface. New players start at `init`; a player's first rating on a surface starts at `init` (`surface_init = 0`) or at their current overall rating (`surface_init = 1`). Editions with no recorded surface update only the overall rating and are predicted from it.
+- **blend is prediction-only:** ratings update identically whatever its value, so a sweep runs each update setting once and scores every blend from the stored pre-match ratings. It is still chosen on the validation block like every other parameter, never on test.
 - **Order:** edition start date, then round order, then match_id. Sackmann has no match day, so matches in the same week are ordered by round only. Each prediction is made from the state strictly before the match (tested by truncation).
 - **What updates ratings:** every level (ITF, challengers, qualifying, team events). Walkovers and unfinished matches never update ratings. Retirements update with `retired_weight` (swept: 0, 0.5, 1).
 - **What is scored:** completed and retired matches only. Scopes: `tour` (ATP+WTA tour-level main draws: ATP levels G/M/A/F/O, WTA G/PM/P/I/W/T1-T5/F/O, rounds not Q*), `tour_atp`, `tour_wta`, `all`. Log loss is the selection metric; Brier, accuracy and a 10-bin calibration table are recorded. Calibration orients each match by stable player key, never winner-first.
@@ -105,7 +106,17 @@ Code: `src/tennis/elo.py` (engine), `src/tennis/evaluate.py` (scoring), `src/ten
   | test 2022-26 | tour_atp | 11,090 | 0.6159 | 0.2140 | 0.653 |
   | test 2022-26 | tour_wta | 10,272 | 0.6058 | 0.2099 | 0.663 |
 
-  Counting retirements fully beat ignoring them in every K setting (by ~0.001 log loss). The optimum sits on the grid edge (lowest shape tried), so a finer sweep around shape 0.2-0.3, k 100-200 is due. Calibration (bins folded so order cannot matter): about 3 points overconfident throughout; e.g. predicted 0.65 -> won 0.62, predicted 0.84 -> won 0.81.
+  Counting retirements fully beat ignoring them in every K setting (by ~0.001 log loss). Calibration (bins folded so order cannot matter): about 3 points overconfident throughout; e.g. predicted 0.65 -> won 0.62, predicted 0.84 -> won 0.81. Judged sufficient for a baseline; no post-hoc calibration applied.
+- **Surface sweep (`surface-v1`, 90 settings in 18 passes, then `blend-fine`):** best on validation was k=150, offset=5, shape=0.25, retired_weight=1, surface_init=0, blend=0.35 (run 132). blend 0.25-0.5 all within 0.0004 of each other; starting surface ratings from the overall rating was slightly worse (~0.0003). blend = 0 reproduced run 12 exactly. Scores vs plain Elo (run 12):
+
+  | Block | Scope | Plain Elo (12) | Surface Elo (132) | Gain |
+  |---|---|---|---|---|
+  | val 2019-21 | tour | 0.6103 | 0.6040 | 0.0063 |
+  | test 2022-26 | tour | 0.6110 | **0.6076** | 0.0035 |
+  | test 2022-26 | tour_atp | 0.6159 | 0.6116 | 0.0043 |
+  | test 2022-26 | tour_wta | 0.6058 | 0.6032 | 0.0026 |
+
+  Test accuracy 66.2% (tour), Brier 0.2106. **Run 132 is the current baseline** the heavy and light layers must beat; calibration unchanged (~3 points overconfident).
 - **Recording:** each setting is a `model_run` row in `models.db` (params, sweep id, data build, git commit) with `run_metric` rows per block x scope. `finalize --save-predictions` writes per-match `prediction` and `pre_match_rating` rows for that run.
 
 ## Point-in-time rules (leakage)
