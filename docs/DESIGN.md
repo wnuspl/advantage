@@ -87,6 +87,27 @@ Code: `src/tennis/build.py`. The database is disposable; a build always starts f
 - **Tables:** `model_run` (model id, canonical parameter JSON, sweep id, the data build and source commits it read, git commit), `run_metric` (log loss / Brier / accuracy / calibration per evaluation block and match scope), `prediction` (canonical player order `p1_key < p2_key`, never winner-first), `pre_match_rating` (each player's rating going into each match: the feature later layers read).
 - **Volume policy:** sweeps write only `model_run` + `run_metric`; per-match rows are written only for runs explicitly saved (one run is ~1.8M predictions and ~3.5M ratings). Deleting a run cascades to its rows.
 
+## Elo baseline (`elo_v1`)
+
+Code: `src/tennis/elo.py` (engine), `src/tennis/evaluate.py` (scoring), `src/tennis/tuning.py` + `scripts/elo_sweep.py` (sweeps). Plain Elo: one overall rating per player (no surface split yet), ATP and WTA naturally separate because their players never meet.
+
+- **Model:** P(a beats b) = 1 / (1 + 10^((r_b - r_a)/400)). After a match each rating moves by K(n) * weight * (result - expected), with K(n) = k / (n + offset)^shape, where n is the player's rated matches so far (shape = 0 gives constant K). New players start at `init`.
+- **Order:** edition start date, then round order, then match_id. Sackmann has no match day, so matches in the same week are ordered by round only. Each prediction is made from the state strictly before the match (tested by truncation).
+- **What updates ratings:** every level (ITF, challengers, qualifying, team events). Walkovers and unfinished matches never update ratings. Retirements update with `retired_weight` (swept: 0, 0.5, 1).
+- **What is scored:** completed and retired matches only. Scopes: `tour` (ATP+WTA tour-level main draws: ATP levels G/M/A/F/O, WTA G/PM/P/I/W/T1-T5/F/O, rounds not Q*), `tour_atp`, `tour_wta`, `all`. Log loss is the selection metric; Brier, accuracy and a 10-bin calibration table are recorded. Calibration orients each match by stable player key, never winner-first.
+- **Blocks:** every setting runs over the full history (warm ratings). `sweep` scores only the validation block (default 2019-2021); `finalize RUN_ID` scores the test block (default 2022-2026) for runs already chosen. Never choose by test score.
+- **First sweep (`default-v1`, 2026-11-13, 40 settings, ~3 s per full-history pass):** best on validation was k=150, offset=5, shape=0.3, retired_weight=1 (run 12). Scores:
+
+  | Block | Scope | n | Log loss | Brier | Accuracy |
+  |---|---|---|---|---|---|
+  | val 2019-21 | tour | 11,307 | 0.6103 | 0.2119 | 0.655 |
+  | test 2022-26 | tour | 21,362 | 0.6110 | 0.2121 | 0.658 |
+  | test 2022-26 | tour_atp | 11,090 | 0.6159 | 0.2140 | 0.653 |
+  | test 2022-26 | tour_wta | 10,272 | 0.6058 | 0.2099 | 0.663 |
+
+  Counting retirements fully beat ignoring them in every K setting (by ~0.001 log loss). The optimum sits on the grid edge (lowest shape tried), so a finer sweep around shape 0.2-0.3, k 100-200 is due. Calibration (bins folded so order cannot matter): about 3 points overconfident throughout; e.g. predicted 0.65 -> won 0.62, predicted 0.84 -> won 0.81.
+- **Recording:** each setting is a `model_run` row in `models.db` (params, sweep id, data build, git commit) with `run_metric` rows per block x scope. `finalize --save-predictions` writes per-match `prediction` and `pre_match_rating` rows for that run.
+
 ## Point-in-time rules (leakage)
 
 - Features and ratings for a match may use only matches that happened strictly before it. Order by `(edition start_date, round_order)` when `match_date` is NULL.
