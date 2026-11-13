@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from tennis.load_mcp import parse_point_codes                     # noqa: E402
 from tennis.load_slam_pbp import parse_match_num                   # noqa: E402
+from tennis.resolve import initials_ok, split_initials, surname_ok   # noqa: E402
 from tennis.normalize import (norm_name, norm_round, parse_ymd,   # noqa: E402
                               score_status, is_placeholder_name)
 
@@ -52,6 +53,28 @@ class NormalizeTest(unittest.TestCase):
         self.assertEqual(parse_match_num("MS501"), ("atp", "QF"))
         self.assertEqual(parse_match_num("WS101"), ("wta", "R128"))
         self.assertEqual(parse_match_num("3101"), (None, None))
+
+
+class InitialsTest(unittest.TestCase):
+    def ok(self, raw, first, last):
+        n = norm_name(raw)
+        sp = split_initials(n)
+        return sp is not None and initials_ok(sp[0], norm_name(first)) and surname_ok(sp[1], norm_name(last))
+
+    def test_forms_seen_in_slam_files(self):
+        self.assertTrue(self.ok("A Bedene", "Aljaz", "Bedene"))
+        self.assertTrue(self.ok("Ds.Schwartzman", "Diego Sebastian", "Schwartzman"))
+        self.assertTrue(self.ok("Jl Struff", "Jan Lennard", "Struff"))
+        self.assertTrue(self.ok("J. L. Struff", "Jan Lennard", "Struff"))
+        self.assertTrue(self.ok("Ka. Pliskova", "Karolina", "Pliskova"))
+        self.assertFalse(self.ok("Ka. Pliskova", "Kristyna", "Pliskova"))
+        self.assertTrue(self.ok("Mt.Torro-Flor", "Maria Teresa", "Torro Flor"))
+        self.assertTrue(self.ok("B.Zahlavova Strycova", "Barbora", "Strycova"))
+
+    def test_rejections(self):
+        self.assertFalse(self.ok("A Bedene", "Andraz", "Bedeneo"))
+        self.assertFalse(self.ok("Roger Federer", "Roger", "Federer"))   # not an initials form
+        self.assertIsNone(split_initials("federer"))
 
 
 class McpCodesTest(unittest.TestCase):

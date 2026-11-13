@@ -79,20 +79,58 @@ class PlayerResolver:
         return pid
 
     def _initial_match(self, n: str, context: set[int]) -> list[int]:
-        toks = n.split()
-        # 'a bedene', 'j l struff', 'a davidovich fokina': leading 1-letter initials + surname
-        k = 0
-        while k < len(toks) - 1 and len(toks[k]) == 1:
-            k += 1
-        if k == 0:
+        """Players in `context` matching an initials form of `n`.
+
+        'a bedene', 'j l struff' / 'jl struff' (initials of 'jan lennard'), 'ka pliskova'
+        (first letters of 'karolina'), 'mt torro flor', 'b zahlavova strycova' (surname
+        tokens overlap: maiden + married name).
+        """
+        split = split_initials(n)
+        if split is None:
             return []
-        initials, surname = toks[:k], " ".join(toks[k:])
-        out = []
-        for pid in context:
-            first, last = self.parts.get(pid, ("", ""))
-            if last == surname and first[:1] == initials[0]:
-                out.append(pid)
-        return out
+        initials, rest = split
+        return [pid for pid in context
+                if initials_ok(initials, self.parts.get(pid, ("", ""))[0])
+                and surname_ok(rest, self.parts.get(pid, ("", ""))[1])]
+
+    def name_compatible(self, raw_name: str, pid: int) -> bool:
+        """Loose check used only together with strong match evidence (opponent anchoring)."""
+        n = norm_name(raw_name)
+        first, last = self.parts.get(pid, ("", ""))
+        mine = {t for t in n.split() if len(t) >= 3}
+        theirs = {t for t in (first + " " + last).split() if len(t) >= 3}
+        if mine & theirs:
+            return True
+        split = split_initials(n)
+        return split is not None and initials_ok(split[0], first) and surname_ok(split[1], last)
+
+    def resolve_by_opponent(self, source: str, key: str, raw_name: str, candidates,
+                            snapshot_id: int) -> int | None:
+        """Second pass for a name that did not resolve on its own.
+
+        `candidates` are the backbone opponents of the already-resolved other player in the
+        same event and round. Two sources agreeing on opponent, event and round, plus a
+        compatible name, confirm the link (DESIGN.md, resolution step 1.4). The player's
+        review_queue row is kept, marked resolved, as an audit trail.
+        """
+        if (source, key) in self.cache and self.cache[(source, key)] is not None:
+            return self.cache[(source, key)]
+        if self.ov.link_for("player", source, key) is not None:
+            return None
+        forbidden = self.ov.forbidden("player", source, key)
+        comp = sorted({p for p in candidates
+                       if p not in forbidden and self.name_compatible(raw_name, p)})
+        if len(comp) != 1:
+            return None
+        pid = comp[0]
+        self._xref(source, key, pid, "context", 0.9, snapshot_id)
+        self.con.execute(
+            """UPDATE review_queue SET status='resolved',
+                   resolved_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
+               WHERE entity_type='player' AND source=? AND source_key=?""", (source, key))
+        self.cache[(source, key)] = pid
+        self._note("context_opponent")
+        return pid
 
     def _resolve(self, source, key, tour, raw_name, dates, snapshot_id, context=None):
         forced = self.ov.link_for("player", source, key)
@@ -115,7 +153,8 @@ class PlayerResolver:
                 self._xref(source, key, in_event[0], "context", 0.98, snapshot_id)
                 self._note("context_event")
                 return in_event[0]
-        if not cands and context:
+        if context and not any(p in context for p in cands):
+            # Also covers 'D. Collins', whose exact alias belongs to players not in this event.
             init = [p for p in self._initial_match(n, context) if p not in forbidden]
             if len(init) == 1:
                 self._xref(source, key, init[0], "context", 0.95, snapshot_id)
@@ -154,6 +193,50 @@ class PlayerResolver:
             queue(self.con, "player", source, key, "no_candidate", [], detail, snapshot_id)
             self._note("no_candidate")
         return None
+
+
+def split_initials(n: str) -> tuple[str, list[str]] | None:
+    """'j l struff' -> ('jl', ['struff']); 'ds schwartzman' -> ('ds', ['schwartzman'])."""
+    toks = n.split()
+    k = 0
+    while k < len(toks) - 1 and len(toks[k]) == 1:
+        k += 1
+    if k:
+        return "".join(toks[:k]), toks[k:]
+    if len(toks) >= 2 and len(toks[0]) <= 3:
+        return toks[0], toks[1:]
+    return None
+
+
+def initials_ok(initials: str, first: str) -> bool:
+    ftoks = first.split()
+    if not ftoks or not initials:
+        return False
+    inits = "".join(t[0] for t in ftoks)
+    return inits.startswith(initials) or "".join(ftoks).startswith(initials)
+
+
+def surname_ok(rest: list[str], last: str) -> bool:
+    lt = last.split()
+    if not lt or not rest:
+        return False
+    return lt == rest or set(lt) <= set(rest) or set(rest) <= set(lt)
+
+
+def opponents(con, known: int, rnd: str | None, *, edition_id: int | None = None,
+              start_from: str | None = None, start_to: str | None = None) -> list[int]:
+    """Backbone opponents of `known` in one edition (or an edition-start window), same round."""
+    sql = """SELECT CASE WHEN m.winner_id=? THEN m.loser_id ELSE m.winner_id END
+             FROM matches m JOIN tournament_edition e USING (edition_id)
+             WHERE (m.winner_id=? OR m.loser_id=?) AND m.round=?"""
+    args = [known, known, known, rnd]
+    if edition_id is not None:
+        sql += " AND m.edition_id=?"
+        args.append(edition_id)
+    else:
+        sql += " AND e.start_date BETWEEN ? AND ?"
+        args += [start_from, start_to]
+    return [r[0] for r in con.execute(sql, args)]
 
 
 _CAND_SQL = """SELECT m.match_id, m.round, m.edition_id, e.start_date, t.canonical_name

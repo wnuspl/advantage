@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     print("\nTable counts:")
     for t, n in report["table_counts"].items():
         print(f"  {t:20s} {n:>10,}")
-    print("\nReview queue:")
+    print(f"\nReview queue, open items ({report['review_queue_auto_resolved']} more were auto-resolved):")
     for r in report["review_queue"]:
         print(f"  {r['entity_type']:7s} {r['source']:18s} {r['reason']:24s} {r['n']:>6}")
     print(f"\nReport: {args.report}")

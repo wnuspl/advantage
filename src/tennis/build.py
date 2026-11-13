@@ -172,8 +172,9 @@ def build_report(con, checks, ignored, resolver, mcp) -> dict:
         """SELECT r.loader, k.reason, SUM(k.n) FROM load_skip k JOIN load_run r USING (load_run_id)
            GROUP BY r.loader, k.reason ORDER BY r.loader, SUM(k.n) DESC""")]
     review = [dict(zip(("entity_type", "source", "reason", "n"), r)) for r in con.execute(
-        """SELECT entity_type, source, reason, COUNT(*) FROM review_queue
+        """SELECT entity_type, source, reason, COUNT(*) FROM review_queue WHERE status='open'
            GROUP BY 1,2,3 ORDER BY 1,2,4 DESC""")]
+    auto_resolved = one("SELECT COUNT(*) FROM review_queue WHERE status='resolved'")
     coverage = [dict(zip(("source", "tour", "linked_keys", "distinct_matches", "with_points"), r))
                 for r in con.execute(
         """SELECT x.source, t.tour, COUNT(*), COUNT(DISTINCT x.match_id),
@@ -194,6 +195,7 @@ def build_report(con, checks, ignored, resolver, mcp) -> dict:
         "loads": loads,
         "skip_reasons": skips,
         "review_queue": review,
+        "review_queue_auto_resolved": auto_resolved,
         "player_resolution": resolver.outcomes,
         "point_source_coverage": coverage,
         "mcp_edition_xref_conflicts": mcp.edition_conflicts,

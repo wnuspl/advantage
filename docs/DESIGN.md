@@ -72,6 +72,11 @@ Code: `src/tennis/build.py`. The database is disposable; a build always starts f
 **Slam point-by-point resolution.**
 - `match_num` is `[12]R..` (1 = men, 2 = women; R = round digit 1..7 = R128..F), or `MS/WS R..` in 2021 AO.
 - Player source keys are scoped to the edition (`atp:2020:ausopen:A Bedene`), because this source writes names differently across years. Context = players in that backbone edition. That resolves exact-name collisions and initial+surname forms (2018-22 AO/FO).
+- Initials forms resolved against the edition's participants: `A Bedene`, `J. L. Struff`/`Jl Struff` (initials of `Jan Lennard`), `Ka. Pliskova` (first letters of `Karolina`, which separates the Pliskova twins), `Mt.Torro-Flor`, `B.Zahlavova Strycova` (surname tokens overlap). Also tried when the exact name belongs only to players who are not in the event (`D. Collins`).
+
+**Opponent anchoring (both name-based sources).** Suppose one side of a match row resolves and the other doesn't. The resolved player's backbone opponents in the same event and round are looked up (slam: the edition; MCP: the date window, main-draw start rule applied). If exactly one of them has a compatible name, the name is linked (`method='context'`, confidence 0.9). Compatible means a shared name token of 3+ letters, or an initials form. This catches first-name variants (Stanislas/Stan, Soonwoo/Soon Woo, Cori/Coco) and married names (Gavrilova/Saville, Kozlova/Baindl, Zakopalova/Koukalova). The name's `review_queue` row stays, marked `resolved`, as an audit trail. On the 2026-11-13 build this resolved 215 names; a random sample of 30 was hand-checked and all were correct.
+
+**Hand review.** `python scripts/export_review.py` writes the open queue to `data/review_open.csv` (gitignored), with candidates as stable source keys. Confirmed rows go into `data/overrides.csv`.
 - Rally length is NULL for AO/FO 2018+ (placeholder values in the source).
 
 ## Point-in-time rules (leakage)

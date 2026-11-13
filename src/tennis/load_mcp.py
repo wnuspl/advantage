@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 from .loadrun import LoadRun
 from .normalize import add_days, norm_round, parse_ymd, to_int
 from .overrides import Overrides
-from .resolve import PlayerResolver, link_match, match_candidates_window, queue
+from .resolve import (MAIN_DRAW_LEAD_DAYS, PlayerResolver, link_match, match_candidates_window,
+                      opponents, queue)
 from .snapshots import RawFile, open_csv
 
 SOURCE = "mcp"
@@ -81,7 +82,15 @@ def load_matches(con: sqlite3.Connection, snapshot_id: int, rf: RawFile, resolve
 
     for line, mid, d, p1, p2, rnd, row in valid:
         st.known.add(mid)
-        a, b = ids[p1], ids[p2]
+        a, b = resolver.cache.get((SOURCE, f"{g}:{p1}")), resolver.cache.get((SOURCE, f"{g}:{p2}"))
+        if (a is None) != (b is None) and cutoff is not None and d <= add_days(cutoff, WINDOW_BEFORE):
+            raw = p1 if a is None else p2
+            hi = add_days(d, WINDOW_AFTER if rnd.startswith("Q") else MAIN_DRAW_LEAD_DAYS)
+            got = resolver.resolve_by_opponent(
+                SOURCE, f"{g}:{raw}", raw,
+                opponents(con, a or b, rnd, start_from=add_days(d, -WINDOW_BEFORE), start_to=hi),
+                snapshot_id)
+            a, b = (got, b) if a is None else (a, got)
         detail = {"date": d, "tournament": row.get("Tournament"), "round": rnd,
                   "player1": p1, "player2": p2}
         if a is None or b is None:

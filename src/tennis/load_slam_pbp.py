@@ -21,7 +21,7 @@ from .load_mcp import flush_points
 from .loadrun import LoadRun
 from .normalize import norm_name, to_int
 from .overrides import Overrides
-from .resolve import PlayerResolver, link_match, match_candidates_edition, queue
+from .resolve import PlayerResolver, link_match, match_candidates_edition, opponents, queue
 from .snapshots import RawFile, open_csv
 
 SOURCE = "sackmann_slam_pbp"
@@ -109,6 +109,12 @@ def load_matches(con: sqlite3.Connection, snapshot_id: int, rf: RawFile, resolve
     for line, mid, tour, rnd, slam, year, (ed, start), p1, p2 in valid:
         a = pid_for(tour, slam, year, ed, start, p1)
         b = pid_for(tour, slam, year, ed, start, p2)
+        if (a is None) != (b is None):
+            raw = p1 if a is None else p2
+            got = resolver.resolve_by_opponent(
+                SOURCE, f"{tour}:{year}:{slam}:{raw}", raw,
+                opponents(con, a or b, rnd, edition_id=ed), snapshot_id)
+            a, b = (got, b) if a is None else (a, got)
         detail = {"slam": slam, "year": year, "round": rnd, "player1": p1, "player2": p2}
         if a is None or b is None:
             queue(con, "match", SOURCE, mid, "player_unresolved", None, detail, snapshot_id)

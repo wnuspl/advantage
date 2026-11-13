@@ -123,29 +123,34 @@ class BuildFixtureTest(unittest.TestCase):
 
     # ---- MCP --------------------------------------------------------------------------
     def test_mcp_match_resolution(self):
-        self.assertEqual(self.loads("mcp_matches"), (7, 0, 3, 3, 1))
+        self.assertEqual(self.loads("mcp_matches"), (7, 0, 4, 3, 0))
         self.assertEqual(self.skips("mcp_matches"),
                          {"after_backbone_cutoff": 1, "malformed_row": 1, "duplicate_match_id": 1})
         # 'John Smith' is two players; only one was active then.
         self.assertEqual(self.one("""SELECT x.method, p.dob FROM player_xref x JOIN player p USING (player_id)
                                      WHERE x.source='mcp' AND x.source_key='m:John Smith'"""),
                          ("context", "1995-01-01"))
-        # 'Samuel Groth' is not an exact name: fuzzy candidates are queued, never linked.
-        row = self.one("""SELECT reason, candidate_ids FROM review_queue
-                          WHERE entity_type='player' AND source='mcp' AND source_key='m:Samuel Groth'""")
-        self.assertEqual(row[0], "low_confidence")
-        self.assertIsNone(self.one("SELECT 1 FROM player_xref WHERE source='mcp' AND source_key='m:Samuel Groth'"))
+        # 'Samuel Groth' is not an exact name, so it is queued with fuzzy candidates. It then
+        # resolves through its opponent: Bedene's only R128 opponent at that event is Sam Groth.
+        self.assertEqual(self.one("""SELECT reason, status FROM review_queue WHERE entity_type='player'
+                                     AND source='mcp' AND source_key='m:Samuel Groth'"""),
+                         ("low_confidence", "resolved"))
+        self.assertEqual(self.one("""SELECT x.method, x.confidence, p.canonical_name FROM player_xref x
+                                     JOIN player p USING (player_id)
+                                     WHERE x.source='mcp' AND x.source_key='m:Samuel Groth'"""),
+                         ("context", 0.9, "Sam Groth"))
 
     def test_mcp_points(self):
-        self.assertEqual(self.loads("mcp_points"), (10, 5, 0, 5, 0))
+        self.assertEqual(self.loads("mcp_points"), (10, 6, 0, 4, 0))
         self.assertEqual(self.skips("mcp_points"),
                          {"malformed_row": 1, "duplicate_point": 1, "duplicate_chart": 1,
-                          "match_not_linked": 1, "match_row_skipped_or_missing": 1})
+                          "match_row_skipped_or_missing": 1})
         pts = {r[0]: r[1:] for r in self.con.execute(
             """SELECT p.point_idx, p.serve_no, p.is_ace, p.is_double_fault, p.rally_len, p.end_type,
                       p.is_tiebreak, s.canonical_name, w.canonical_name
                FROM point p JOIN player s ON s.player_id=p.server_id JOIN player w ON w.player_id=p.winner_id
-               WHERE p.data_source='mcp'""")}
+               JOIN matches m ON m.match_id=p.match_id
+               WHERE p.data_source='mcp' AND m.round='F'""")}
         self.assertEqual(pts[1], (1, 1, 0, 1, "ace", 0, "Novak Djokovic", "Novak Djokovic"))
         self.assertEqual(pts[2], (2, 0, 1, 0, "double_fault", 0, "Novak Djokovic", "Rafael Nadal"))
         self.assertEqual(pts[3], (1, 0, 0, 4, "winner", 0, "Novak Djokovic", "Rafael Nadal"))

@@ -5,3 +5,4 @@ tennis.db.building*
 data/raw
 data/build_report.json
 __pycache__/
+data/review_open.csv
