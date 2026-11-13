@@ -1,8 +1,11 @@
--- Tennis data backbone: SQLite schema, v2
+-- Tennis data backbone: SQLite schema, v3
 -- Applied by src/tennis/db.py (executescript). The database is disposable:
 -- `python scripts/build_db.py` rebuilds tennis.db from data/raw/ + data/build_manifest.json.
 -- Conventions: STRICT tables, ISO-8601 TEXT for dates/times, own surrogate IDs,
 -- source IDs only ever live in *_xref tables.
+--
+-- v3 (2026-11-13): rating_snapshot and prediction moved out to models.db
+-- (models_schema.sql), keyed by stable source keys so model results survive rebuilds.
 --
 -- v2 (2026-11-13): per-file ingest_snapshot, load_run/load_skip accounting and
 -- v_inv_load_counts; snapshot_id on bulk tables; rounds Q4/Q5/PR/CR and best-of-1
@@ -19,7 +22,7 @@ CREATE TABLE schema_meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 ) STRICT;
-INSERT INTO schema_meta (key, value) VALUES ('schema_version', '2');
+INSERT INTO schema_meta (key, value) VALUES ('schema_version', '3');
 
 CREATE TABLE source (
   source      TEXT PRIMARY KEY,   -- 'sackmann_atp','sackmann_wta','sackmann_slam_pbp','mcp', ...
@@ -325,27 +328,9 @@ CREATE TABLE override_link (
 ) STRICT;
 
 ------------------------------------------------------------------------
--- 7. Modeling support (phase 2+): as-of ratings and walk-forward predictions
+-- 7. Modeling outputs live in models.db (models_schema.sql), not here: this file is
+--    rebuilt from raw data and its surrogate IDs change on every rebuild.
 ------------------------------------------------------------------------
--- State of a rating AFTER all matches strictly before as_of_date. Never overwritten.
-CREATE TABLE rating_snapshot (
-  model_id      TEXT NOT NULL,
-  player_id     INTEGER NOT NULL REFERENCES player(player_id),
-  surface       TEXT NOT NULL CHECK (surface IN ('all','hard','clay','grass','carpet')),
-  as_of_date    TEXT NOT NULL,
-  rating        REAL NOT NULL,
-  deviation     REAL,
-  n_matches     INTEGER,
-  PRIMARY KEY (model_id, player_id, surface, as_of_date)
-) STRICT;
-
-CREATE TABLE prediction (
-  model_id        TEXT NOT NULL,
-  match_id        INTEGER NOT NULL REFERENCES matches(match_id),
-  predicted_at    TEXT NOT NULL,
-  p_lo_wins       REAL NOT NULL CHECK (p_lo_wins BETWEEN 0 AND 1),  -- P(pair_lo_id player wins)
-  PRIMARY KEY (model_id, match_id)
-) STRICT;
 
 ------------------------------------------------------------------------
 -- 8. Views

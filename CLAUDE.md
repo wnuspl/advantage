@@ -46,6 +46,7 @@ All Sackmann-derived data is **CC BY-NC-SA 4.0**: attribution required, non-comm
   - If a registered file's bytes change under the same commit, the build stops (hashes kept in tracked `data/snapshot_lock.json`). Raw files are immutable.
   - Bulk tables (`match_player_stats`, `ranking`, `point`) carry a `snapshot_id`.
 - The database is disposable: `python scripts/build_db.py` rebuilds `tennis.db` from `data/raw/` plus the manifest.
+- Model results live in `models.db` (`models_schema.sql`, `src/tennis/models_db.py`), never in `tennis.db`. It is never rebuilt (additive schema only) and keys rows by stable source keys (`sackmann_atp:104925`), never surrogate IDs, which change on every rebuild.
 
 ## Invariants (must be tested)
 - Each `(source, source_key)` maps to exactly one entity.
@@ -57,7 +58,7 @@ All Sackmann-derived data is **CC BY-NC-SA 4.0**: attribution required, non-comm
 ## Environment and conventions
 - **Windows / PowerShell.** Use `curl.exe`, not `curl`. Open files with `encoding="utf-8"` (player names have accents). Use `pathlib`. No `sqlite3` CLI: use Python's `sqlite3` module.
 - Python 3.12+. venv at project root (`.venv`, gitignored). Code in `src/tennis/`, scripts in `scripts/`, tests in `tests/` with small fixtures in `tests/fixtures/` (never test on full data).
-- Layout: `schema.sql`, `docs/DESIGN.md`, `data/raw/` (gitignored), `data/SOURCES.md`, `data/build_manifest.json`, `data/snapshot_lock.json`, `data/overrides.csv` (all tracked), `data/build_report.json` and `tennis.db` (gitignored).
+- Layout: `schema.sql`, `docs/DESIGN.md`, `data/raw/` (gitignored), `data/SOURCES.md`, `data/build_manifest.json`, `data/snapshot_lock.json`, `data/overrides.csv` (all tracked), `data/build_report.json`, `tennis.db` and `models.db` (gitignored).
 - Tests: `python -m unittest discover -s tests` (standard library; no pytest dependency). Full build: `python scripts/build_db.py` (~10 min).
 - Ask before downloading large datasets or adding dependencies. Standard library where reasonable.
 - Verify before trusting: never assume CSV column names, ID formats, or MCP match-identifier structure. Read the real files first, then write the loader.

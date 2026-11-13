@@ -79,13 +79,20 @@ Code: `src/tennis/build.py`. The database is disposable; a build always starts f
 **Hand review.** `python scripts/export_review.py` writes the open queue to `data/review_open.csv` (gitignored), with candidates as stable source keys. Confirmed rows go into `data/overrides.csv`.
 - Rally length is NULL for AO/FO 2018+ (placeholder values in the source).
 
+## models.db (modeling results)
+
+`models.db` (schema `models_schema.sql`, code `src/tennis/models_db.py`) holds everything a model run produces. It is **never rebuilt**: the schema is applied idempotently on every connect and changes only additively. `build_db.py` does not touch it, so sweeps and chosen parameters survive any number of data rebuilds.
+
+- **Stable keys, not surrogate IDs.** Rows refer to players and matches by the source key of their backbone (seed) xref, e.g. `sackmann_atp:104925` and `sackmann_atp:2024-0339:300:F:105777:208029`. `models_db.match_keys()` / `player_keys()` map the current `tennis.db` IDs to them. Analysis code attaches `tennis.db` read-only as `data`.
+- **Tables:** `model_run` (model id, canonical parameter JSON, sweep id, the data build and source commits it read, git commit), `run_metric` (log loss / Brier / accuracy / calibration per evaluation block and match scope), `prediction` (canonical player order `p1_key < p2_key`, never winner-first), `pre_match_rating` (each player's rating going into each match: the feature later layers read).
+- **Volume policy:** sweeps write only `model_run` + `run_metric`; per-match rows are written only for runs explicitly saved (one run is ~1.8M predictions and ~3.5M ratings). Deleting a run cascades to its rows.
+
 ## Point-in-time rules (leakage)
 
 - Features and ratings for a match may use only matches that happened strictly before it. Order by `(edition start_date, round_order)` when `match_date` is NULL.
 - `matches.date_precision` says whether `match_date` is exact (`day`) or only the week is known (`week`). Same-day logic applies to `day` rows only.
 - Rankings: use the latest `ranking_date` strictly before the match, never the rank stored on the match row for features.
-- `rating_snapshot` rows are append-only: the state after all matches before `as_of_date`.
-- `prediction` is written before the result is known, and evaluated walk-forward only.
+- Model outputs (pre-match ratings, predictions) live in `models.db`, not here. A prediction is made from state strictly before the match and evaluated walk-forward only.
 - Odds are a benchmark. Using them as features needs verified capture times.
 
 ## Table map
@@ -99,7 +106,6 @@ Code: `src/tennis/build.py`. The database is disposable; a build always starts f
 | Points | `point`, `shot` (phase 2) |
 | Benchmark | `odds` |
 | Resolution | `review_queue`, `override_link` |
-| Modeling | `rating_snapshot`, `prediction` |
 | Views | `v_player_match`, `v_inv_same_day_conflicts`, `v_inv_load_counts`, `v_inv_point_players`, `v_open_review` |
 
 Design notes:
