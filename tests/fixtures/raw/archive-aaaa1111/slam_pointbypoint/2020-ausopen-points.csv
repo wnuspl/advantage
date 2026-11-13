@@ -1,0 +1,7 @@
+match_id,PointNumber,PointServer,PointWinner,SetNo,GameNo,ServeIndicator,P1Ace,P2Ace,P1DoubleFault,P2DoubleFault,P1Winner,P2Winner,P1UnfErr,P2UnfErr,P1ForcedError,P2ForcedError,Rally
+2020-ausopen-1101,0X,0,0,1,1,,0,0,0,0,0,0,0,0,0,0,0
+2020-ausopen-1101,1,1,1,1,1,1,1,0,0,0,1,0,0,0,0,0,1
+2020-ausopen-1101,2,1,2,1,1,2,0,0,1,0,0,0,0,0,0,0,0
+2020-ausopen-1101,2,1,2,1,1,2,0,0,1,0,0,0,0,0,0,0,0
+2020-ausopen-1102,1,2,2,1,1,1,0,0,0,0,0,1,0,0,0,0,5
+2020-ausopen-3101,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,3

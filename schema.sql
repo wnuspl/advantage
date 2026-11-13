@@ -1,37 +1,73 @@
--- Tennis data backbone: SQLite schema, v1
--- Apply with: sqlite3 tennis.db < schema.sql   (or executescript in Python)
+-- Tennis data backbone: SQLite schema, v2
+-- Applied by src/tennis/db.py (executescript). The database is disposable:
+-- `python scripts/build_db.py` rebuilds tennis.db from data/raw/ + data/build_manifest.json.
 -- Conventions: STRICT tables, ISO-8601 TEXT for dates/times, own surrogate IDs,
 -- source IDs only ever live in *_xref tables.
+--
+-- v2 (2026-11-13): per-file ingest_snapshot, load_run/load_skip accounting and
+-- v_inv_load_counts; snapshot_id on bulk tables; rounds Q4/Q5/PR/CR and best-of-1
+-- (both occur in the Sackmann files); player.is_placeholder; override targets stored
+-- as stable source keys; review_queue.detail.
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 
 ------------------------------------------------------------------------
--- 0. Meta, sources, raw snapshots
+-- 0. Meta, sources, raw snapshots, load accounting
 ------------------------------------------------------------------------
 CREATE TABLE schema_meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 ) STRICT;
-INSERT INTO schema_meta (key, value) VALUES ('schema_version', '1');
+INSERT INTO schema_meta (key, value) VALUES ('schema_version', '2');
 
 CREATE TABLE source (
-  source      TEXT PRIMARY KEY,   -- 'sackmann_atp','sackmann_wta','mcp','sackmann_slam_pbp','tennis_data_uk'
+  source      TEXT PRIMARY KEY,   -- 'sackmann_atp','sackmann_wta','sackmann_slam_pbp','mcp', ...
   description TEXT,
-  license     TEXT,               -- e.g. MCP: 'CC BY-NC-SA 4.0 (attribution, non-commercial)'
+  license     TEXT,
   url         TEXT
 ) STRICT;
 
--- One row per raw file ingested. Raw files are immutable on disk.
+-- One row per raw FILE registered for a build. Raw files are immutable on disk:
+-- data/snapshot_lock.json remembers each file's sha256, and a changed hash stops the build.
 CREATE TABLE ingest_snapshot (
-  snapshot_id INTEGER PRIMARY KEY,
-  source      TEXT NOT NULL REFERENCES source(source),
-  fetched_at  TEXT NOT NULL,
-  source_ref  TEXT,               -- git commit, release tag, or URL
-  sha256      TEXT NOT NULL,
-  raw_path    TEXT NOT NULL,
-  row_count   INTEGER,
-  UNIQUE (source, sha256)
+  snapshot_id   INTEGER PRIMARY KEY,
+  source        TEXT NOT NULL REFERENCES source(source),
+  source_ref    TEXT NOT NULL,      -- commit of the downloaded repo snapshot
+  file_relpath  TEXT NOT NULL,      -- path inside the snapshot folder, forward slashes
+  raw_path      TEXT NOT NULL,      -- path relative to the project root
+  sha256        TEXT NOT NULL,
+  row_count     INTEGER NOT NULL,   -- CSV data records (header excluded)
+  file_group    TEXT NOT NULL,      -- manifest group; names the loader
+  loader        TEXT NOT NULL,
+  fetched_at    TEXT,
+  registered_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  UNIQUE (source, file_relpath, sha256)
+) STRICT;
+
+-- Loading is separate from registering. One row per loader per file.
+-- Every row read ends in exactly one outcome: inserted (new entity), linked (xref to an
+-- existing entity), skipped (with a reason in load_skip), or queued (review_queue).
+CREATE TABLE load_run (
+  load_run_id   INTEGER PRIMARY KEY,
+  snapshot_id   INTEGER NOT NULL REFERENCES ingest_snapshot(snapshot_id),
+  loader        TEXT NOT NULL,
+  started_at    TEXT NOT NULL,
+  finished_at   TEXT,
+  rows_read     INTEGER NOT NULL DEFAULT 0,
+  rows_inserted INTEGER NOT NULL DEFAULT 0,
+  rows_linked   INTEGER NOT NULL DEFAULT 0,
+  rows_skipped  INTEGER NOT NULL DEFAULT 0,
+  rows_queued   INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (snapshot_id, loader)
+) STRICT;
+
+CREATE TABLE load_skip (
+  load_run_id INTEGER NOT NULL REFERENCES load_run(load_run_id),
+  reason      TEXT NOT NULL,
+  n           INTEGER NOT NULL,
+  example     TEXT,                -- first few CSV line numbers / keys, for spot checks
+  PRIMARY KEY (load_run_id, reason)
 ) STRICT;
 
 ------------------------------------------------------------------------
@@ -47,6 +83,7 @@ CREATE TABLE player (
   hand           TEXT CHECK (hand IS NULL OR hand IN ('R','L','U')),
   height_cm      INTEGER,
   country        TEXT,
+  is_placeholder INTEGER NOT NULL DEFAULT 0 CHECK (is_placeholder IN (0,1)),  -- 'Unknown', 'X X'
   created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 ) STRICT;
 CREATE INDEX idx_player_name ON player (tour, name_last, name_first);
@@ -97,13 +134,14 @@ CREATE TABLE tournament_edition (
   year          INTEGER NOT NULL,
   start_date    TEXT NOT NULL,
   end_date      TEXT,
-  level         TEXT,             -- 'G','M','500','250','F','C','I', ...
+  level         TEXT,             -- raw Sackmann tourney_level: 'G','M','A','C','S','D','15', ...
   surface       TEXT CHECK (surface IS NULL OR surface IN ('hard','clay','grass','carpet')),
   indoor        INTEGER CHECK (indoor IS NULL OR indoor IN (0,1)),
   draw_size     INTEGER,
-  best_of       INTEGER CHECK (best_of IS NULL OR best_of IN (3,5)),
+  best_of       INTEGER CHECK (best_of IS NULL OR best_of IN (1,3,5)),
   UNIQUE (tournament_id, start_date)
 ) STRICT;
+CREATE INDEX idx_edition_start ON tournament_edition (start_date);
 
 CREATE TABLE edition_xref (
   source      TEXT NOT NULL REFERENCES source(source),
@@ -124,7 +162,8 @@ CREATE TABLE matches (
   match_id       INTEGER PRIMARY KEY,
   edition_id     INTEGER NOT NULL REFERENCES tournament_edition(edition_id),
   round          TEXT NOT NULL CHECK (round IN
-                   ('Q1','Q2','Q3','R128','R64','R32','R16','QF','SF','F','RR','BR','ER')),
+                   ('Q1','Q2','Q3','Q4','Q5','PR','ER','R128','R64','R32','R16',
+                    'RR','CR','QF','SF','BR','F')),
   round_order    INTEGER NOT NULL,           -- chronological order within an edition
   match_date     TEXT,                       -- exact day if known, else NULL
   date_precision TEXT NOT NULL CHECK (date_precision IN ('day','week')),
@@ -133,8 +172,9 @@ CREATE TABLE matches (
   score          TEXT,
   status         TEXT NOT NULL DEFAULT 'completed'
                    CHECK (status IN ('completed','retired','walkover','default','unfinished')),
-  best_of        INTEGER CHECK (best_of IS NULL OR best_of IN (3,5)),
+  best_of        INTEGER CHECK (best_of IS NULL OR best_of IN (1,3,5)),
   minutes        INTEGER,
+  snapshot_id    INTEGER NOT NULL REFERENCES ingest_snapshot(snapshot_id),
   -- Order-independent pair key: use for joins across sources and for leakage-safe features.
   pair_lo_id     INTEGER GENERATED ALWAYS AS (MIN(winner_id, loser_id)) STORED,
   pair_hi_id     INTEGER GENERATED ALWAYS AS (MAX(winner_id, loser_id)) STORED,
@@ -145,10 +185,11 @@ CREATE INDEX idx_matches_edition ON matches (edition_id, round_order);
 CREATE INDEX idx_matches_date    ON matches (match_date);
 CREATE INDEX idx_matches_winner  ON matches (winner_id);
 CREATE INDEX idx_matches_loser   ON matches (loser_id);
+CREATE INDEX idx_matches_pair    ON matches (pair_lo_id, pair_hi_id);
 
 CREATE TABLE match_xref (
   source      TEXT NOT NULL REFERENCES source(source),
-  source_key  TEXT NOT NULL,      -- e.g. MCP match string, or Sackmann tourney_id + match_num
+  source_key  TEXT NOT NULL,      -- MCP match_id, slam match_id, or Sackmann tid:num:round:w:l
   match_id    INTEGER NOT NULL REFERENCES matches(match_id),
   method      TEXT NOT NULL CHECK (method IN ('seed','pair_tournament_date','fuzzy','context','override')),
   confidence  REAL NOT NULL CHECK (confidence BETWEEN 0 AND 1),
@@ -177,6 +218,7 @@ CREATE TABLE match_player_stats (
   rank_points    INTEGER,
   seed           INTEGER,
   entry          TEXT,
+  snapshot_id    INTEGER NOT NULL REFERENCES ingest_snapshot(snapshot_id),
   PRIMARY KEY (match_id, player_id, source)
 ) STRICT;
 
@@ -187,6 +229,7 @@ CREATE TABLE ranking (
   player_id    INTEGER NOT NULL REFERENCES player(player_id),
   rank         INTEGER NOT NULL,
   points       INTEGER,
+  snapshot_id  INTEGER NOT NULL REFERENCES ingest_snapshot(snapshot_id),
   PRIMARY KEY (tour, ranking_date, player_id)
 ) STRICT;
 CREATE INDEX idx_ranking_player ON ranking (player_id, ranking_date);
@@ -214,6 +257,7 @@ CREATE TABLE point (
   score_before   TEXT,
   raw_first      TEXT,                       -- original MCP notation, kept for re-parsing
   raw_second     TEXT,
+  snapshot_id    INTEGER NOT NULL REFERENCES ingest_snapshot(snapshot_id),
   UNIQUE (match_id, data_source, point_idx)
 ) STRICT;
 CREATE INDEX idx_point_server ON point (server_id);
@@ -255,21 +299,28 @@ CREATE TABLE review_queue (
   source         TEXT NOT NULL REFERENCES source(source),
   source_key     TEXT NOT NULL,
   candidate_ids  TEXT,                       -- JSON array of candidate entity IDs
-  reason         TEXT NOT NULL,              -- 'ambiguous','low_confidence','no_candidate'
+  reason         TEXT NOT NULL,              -- 'ambiguous','low_confidence','no_candidate',
+                                             -- 'player_unresolved','duplicate_key_conflict', ...
+  detail         TEXT,                       -- JSON: names, dates, scores, for the reviewer
+  snapshot_id    INTEGER REFERENCES ingest_snapshot(snapshot_id),
   status         TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved','ignored')),
   created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
   resolved_at    TEXT,
   UNIQUE (entity_type, source, source_key)
 ) STRICT;
 
--- Loaded from the version-controlled overrides file; applied last, always wins.
+-- Loaded from data/overrides.csv (version-controlled); always wins over automatic rules.
+-- Targets are stable SOURCE keys (surrogate IDs change on every rebuild), resolved to
+-- target_id at build time. An override whose target does not resolve stops the build.
 CREATE TABLE override_link (
-  entity_type TEXT NOT NULL CHECK (entity_type IN ('player','edition','match')),
-  source      TEXT NOT NULL REFERENCES source(source),
-  source_key  TEXT NOT NULL,
-  action      TEXT NOT NULL CHECK (action IN ('link','forbid')),
-  target_id   INTEGER,                       -- required for 'link', the entity to forbid for 'forbid'
-  note        TEXT,
+  entity_type   TEXT NOT NULL CHECK (entity_type IN ('player','edition','match')),
+  source        TEXT NOT NULL REFERENCES source(source),
+  source_key    TEXT NOT NULL,
+  action        TEXT NOT NULL CHECK (action IN ('link','forbid')),
+  target_source TEXT NOT NULL REFERENCES source(source),
+  target_key    TEXT NOT NULL,
+  target_id     INTEGER NOT NULL,
+  note          TEXT,
   PRIMARY KEY (entity_type, source, source_key, action, target_id)
 ) STRICT;
 
@@ -318,7 +369,37 @@ JOIN v_player_match b
 WHERE a.match_date IS NOT NULL
   AND a.status NOT IN ('walkover') AND b.status NOT IN ('walkover');
 
--- Invariant: source rows that neither resolved nor were queued are the pipeline's job to
--- report; this view lists the open review items.
+-- Invariant: every registered source row is accounted for. Must be empty.
+CREATE VIEW v_inv_load_counts AS
+WITH runs AS (
+  SELECT s.snapshot_id, s.source, s.file_relpath, s.loader, s.row_count,
+         r.load_run_id, r.finished_at, r.rows_read, r.rows_inserted, r.rows_linked,
+         r.rows_skipped, r.rows_queued,
+         (SELECT COALESCE(SUM(k.n), 0) FROM load_skip k WHERE k.load_run_id = r.load_run_id)
+           AS skip_reason_total
+  FROM ingest_snapshot s
+  LEFT JOIN load_run r ON r.snapshot_id = s.snapshot_id AND r.loader = s.loader
+)
+SELECT *,
+  CASE
+    WHEN load_run_id IS NULL THEN 'never_loaded'
+    WHEN finished_at IS NULL THEN 'unfinished'
+    WHEN rows_read <> row_count THEN 'rows_read_ne_row_count'
+    WHEN rows_inserted + rows_linked + rows_skipped + rows_queued <> rows_read
+      THEN 'outcomes_ne_rows_read'
+    WHEN rows_skipped <> skip_reason_total THEN 'skips_without_reason'
+  END AS problem
+FROM runs
+WHERE problem IS NOT NULL;
+
+-- Invariant: point server and returner are the two players of the match. Must be empty.
+CREATE VIEW v_inv_point_players AS
+SELECT p.point_id, p.match_id, p.data_source
+FROM point p JOIN matches m USING (match_id)
+WHERE NOT (p.server_id   IN (m.winner_id, m.loser_id)
+       AND p.returner_id IN (m.winner_id, m.loser_id)
+       AND p.winner_id   IN (m.winner_id, m.loser_id)
+       AND p.server_id <> p.returner_id);
+
 CREATE VIEW v_open_review AS
 SELECT * FROM review_queue WHERE status = 'open';

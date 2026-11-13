@@ -14,7 +14,7 @@ Predict ATP/WTA singles match outcomes with a two-layer model, judged by walk-fo
 - **MCP is a biased sample** (volunteer-charted, skews to top players and big matches). Track charted-match count per player. Below a threshold, the style vector falls back to the population mean and the light layer carries the player.
 - **Glicko-style light layer:** state per player (and per surface where data allows): rating, deviation, optionally volatility (Glicko-2). Update from each result; inflate deviation after inactivity and on surface change. Prefer an update on serve/return point outcomes when per-match stats exist (more information per match than win/loss), and fall back to the win/loss update when only a result exists. The light layer must tolerate matches with no stats.
 - **No double-counting:** the heavy layer is trained with a cutoff so the light layer's residuals aren't already absorbed by it.
-- Retirements/walkovers: exclude from light-layer updates (or down-weight); decide once, document here.
+- Retirements/walkovers: exclude from light-layer updates (or down-weight); decide once, document here. (Data side done: `matches.status` is `retired`/`walkover`/`default`/`unfinished`; the model decision is still open.)
 
 ## Evaluation rules
 - Walk-forward only. Never shuffle. Train on the past, predict the next block, roll forward.
@@ -27,7 +27,7 @@ Jeff Sackmann's `tennis_atp`, `tennis_wta` and slam point-by-point repos were **
 
 | Source | Use | Notes |
 |---|---|---|
-| `Aneeshers/tennis-sackmann-archive` (mirror) | Backbone: players, matches, per-match serve stats, rankings; slam point-by-point | Archive, not a fork: upstream commit hashes aren't recorded, so we record our own commit + sha256. ATP/WTA through ~June 2026, slam point data through 2024. **Folder layout unverified: inspect before writing loaders.** |
+| `Aneeshers/tennis-sackmann-archive` (mirror) | Backbone: players, matches, per-match serve stats, rankings; slam point-by-point | Archive, not a fork: upstream commit hashes aren't recorded, so we record our own commit + sha256. Layout verified 2026-11-13: `atp/`, `wta/`, `slam_pointbypoint/`. Matches end at tourney_date 2026-05-25, rankings at 2026-06-08, slam point data 2011-2024. |
 | `JeffSackmann/tennis_MatchChartingProject` | Heavy layer: point/shot data | Still upstream but could vanish: keep our own pinned copy. |
 | Daily results feed (deferred) | Light layer after the mirror's cutoff | `scripts/ingest_daily.py` is a skeleton. Field names are guesses; no loader into `matches` yet. Third-party scraping: check terms and pricing before using. |
 | tennis-data.co.uk, odds APIs | Benchmark (closing odds) | Later. Odds are never a training feature unless capture times are verified. |
@@ -39,11 +39,11 @@ All Sackmann-derived data is **CC BY-NC-SA 4.0**: attribution required, non-comm
 - Own surrogate IDs (`player_id`, `tournament_id`, `edition_id`, `match_id`). Source IDs live only in `*_xref(source, source_key, id, method, confidence, verified)`.
 - Resolve in order: players and tournaments, then editions, then matches. Match join key: unordered player pair + edition + date window (±2 days), round as tiebreaker.
 - Fuzzy matching only inside blocks. Low confidence goes to `review_queue`, never auto-merged. Hand-confirmed links and forced non-matches live in a version-controlled `data/overrides.csv`, applied last, always winning.
-- **Snapshots (to implement; not yet in the repo):**
+- **Snapshots (implemented: `src/tennis/snapshots.py`, `loadrun.py`, `build.py`; see DESIGN.md "Build protocol"):**
   - `ingest_snapshot`: one row per raw *file* (source, source_ref, file_relpath, sha256, raw_path, row_count), unique on `(source, file_relpath, sha256)`.
   - `data/build_manifest.json` pins which downloaded folder each source uses. A build never silently picks "the newest."
   - Registering a file is separate from loading it. A `load_run` table records rows read / inserted / skipped / queued per loader per file. A view (`v_inv_load_counts`) must return zero rows: every source row is accounted for.
-  - If a registered file's bytes change under the same commit, the build stops. Raw files are immutable.
+  - If a registered file's bytes change under the same commit, the build stops (hashes kept in tracked `data/snapshot_lock.json`). Raw files are immutable.
   - Bulk tables (`match_player_stats`, `ranking`, `point`) carry a `snapshot_id`.
 - The database is disposable: `python scripts/build_db.py` rebuilds `tennis.db` from `data/raw/` plus the manifest.
 
@@ -57,7 +57,8 @@ All Sackmann-derived data is **CC BY-NC-SA 4.0**: attribution required, non-comm
 ## Environment and conventions
 - **Windows / PowerShell.** Use `curl.exe`, not `curl`. Open files with `encoding="utf-8"` (player names have accents). Use `pathlib`. No `sqlite3` CLI: use Python's `sqlite3` module.
 - Python 3.12+. venv at project root (`.venv`, gitignored). Code in `src/tennis/`, scripts in `scripts/`, tests in `tests/` with small fixtures in `tests/fixtures/` (never test on full data).
-- Layout: `schema.sql`, `docs/DESIGN.md`, `data/raw/` (gitignored), `data/SOURCES.md` (tracked), `data/overrides.csv` (tracked), `tennis.db` (gitignored).
+- Layout: `schema.sql`, `docs/DESIGN.md`, `data/raw/` (gitignored), `data/SOURCES.md`, `data/build_manifest.json`, `data/snapshot_lock.json`, `data/overrides.csv` (all tracked), `data/build_report.json` and `tennis.db` (gitignored).
+- Tests: `python -m unittest discover -s tests` (standard library; no pytest dependency). Full build: `python scripts/build_db.py` (~10 min).
 - Ask before downloading large datasets or adding dependencies. Standard library where reasonable.
 - Verify before trusting: never assume CSV column names, ID formats, or MCP match-identifier structure. Read the real files first, then write the loader.
 - Commit after each milestone with tests passing.

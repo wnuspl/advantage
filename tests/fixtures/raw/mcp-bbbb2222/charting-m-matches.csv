@@ -1,0 +1,8 @@
+match_id,Player 1,Player 2,Pl 1 hand,Pl 2 hand,Date,Tournament,Round,Time,Court,Surface,Umpire,Best of,Final TB?,Charted by
+20200202-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,Novak Djokovic,Rafael Nadal,R,R,20200202,Australian Open,F,,,Hard,,5,1,fixture
+20200120-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,Novak Djokovic,Rafael Nadal,R,R,20200120,Australian Open,F,,,Hard,,5,1,fixture
+20200120-M-Australian_Open-R128-Roger_Federer-John_Smith,Roger Federer,John Smith,R,R,20200120,Australian Open,R128,,,Hard,,5,1,fixture
+20200121-M-Australian_Open-R128-Samuel_Groth-Aljaz_Bedene,Samuel Groth,Aljaz Bedene,R,R,20200121,Australian Open,R128,,,Hard,,5,1,fixture
+20260901-M-US_Open-F-Roger_Federer-Rafael_Nadal,Roger Federer,Rafael Nadal,R,R,20260901,US Open,F,,,Hard,,5,1,fixture
+20200120-M-Shifted-R32-R-L,R,L,20200120,Shifted,Court 3,,,,,,,,,
+20200202-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,Novak Djokovic,Rafael Nadal,R,R,20200202,Australian Open,F,,,Hard,,5,1,fixture

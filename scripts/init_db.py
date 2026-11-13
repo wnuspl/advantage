@@ -1,13 +1,12 @@
-import sqlite3
+"""Create an empty tennis.db from schema.sql (no data). For a full build use build_db.py."""
+import sys
 from pathlib import Path
 
-root = Path(__file__).resolve().parent.parent
-db_path = root / "tennis.db"
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
 
-if db_path.exists():
-    db_path.unlink()            # rebuild from scratch; the database is disposable
+from tennis import db  # noqa: E402
 
-con = sqlite3.connect(db_path)
-con.executescript((root / "schema.sql").read_text(encoding="utf-8"))
-con.close()
-print(f"Created {db_path}")
+path = ROOT / "tennis.db"
+db.create(path).close()      # rebuild from scratch; the database is disposable
+print(f"Created {path}")

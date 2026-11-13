@@ -1,3 +1,7 @@
 tennis.db
+tennis.db-*
+tennis.db.building*
 .venv
 data/raw
+data/build_report.json
+__pycache__/

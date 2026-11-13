@@ -15,7 +15,7 @@ One local store that merges several tennis data sources behind stable internal I
 | Sackmann slam point-by-point | `point` | AO/FO from 2018 have no serve speed and a placeholder rally length. Leave those columns NULL. |
 | tennis-data.co.uk | `odds` (benchmark) | Resolve to `match_id` through `match_xref`. |
 
-Register each in `source` with its license. Every raw file gets an `ingest_snapshot` row (hash, fetch time, commit/URL). Raw files are immutable and parsers are re-runnable.
+Register each in `source` with its license (declared in `data/build_manifest.json`). Every raw *file* gets an `ingest_snapshot` row (sha256, row count, commit). Raw files are immutable and parsers are re-runnable.
 
 ## ID strategy
 
@@ -32,9 +32,47 @@ Register each in `source` with its license. Every raw file gets an `ingest_snaps
    3. Fuzzy match, only inside blocks (same tour, same last-name initial or same edition). Below the confidence threshold, write to `review_queue`. Never auto-merge.
    4. Context evidence: two sources agreeing on opponent, tournament, and date confirms both players.
 2. **Matches.** Key on the unordered pair (`pair_lo_id`, `pair_hi_id`) + edition + a date window of ±2 days, with round as tiebreaker.
-3. **Overrides last.** `override_link` is loaded from a version-controlled file (`overrides.csv` or YAML) and always wins. `forbid` rows block specific links.
+3. **Overrides always win.** `data/overrides.csv` (version-controlled) is loaded into `override_link` before any name-based source is resolved; resolvers consult it first (`link` forces a target, `forbid` removes a candidate), and the verify step re-checks that every override was honoured. Targets are written as **stable source keys** (`target_source,target_key`, e.g. `sackmann_atp,104925`), never surrogate IDs, because surrogate IDs change on every rebuild. An override whose target does not resolve stops the build.
 
 Resolve means: either a xref row exists, or a `review_queue` row exists. Nothing is dropped silently.
+
+## Build protocol (`python scripts/build_db.py`)
+
+Code: `src/tennis/build.py`. The database is disposable; a build always starts from an empty file `tennis.db.building` and swaps it in only after every check passes. On failure the previous `tennis.db` is untouched.
+
+| Step | What | Stops the build when |
+|---|---|---|
+| 0 preflight | Read `data/build_manifest.json`. Classify every file in each pinned folder into exactly one group (which names its loader) or an `ignore` pattern with a reason. | A pinned folder is missing; a file matches no group/ignore or two groups; a group pattern matches nothing (layout drift). |
+| 1 schema | Apply `schema.sql`. | SQLite < 3.37. |
+| 2 register | Insert `source` rows; hash + count every planned file; one `ingest_snapshot` row per file. Compare with `data/snapshot_lock.json` (tracked) and add new files to it. | A locked file's bytes changed or it disappeared. |
+| 3 backbone | Sackmann players, then editions + matches + `match_player_stats`, then rankings. | A loader's outcomes don't add up to rows read. |
+| 4 overrides | `data/overrides.csv` -> `override_link`. | Bad header, unknown target, link+forbid on the same target. |
+| 5 MCP | Charted matches: resolve both names, then the match; then points. | (as 3) |
+| 6 slam pbp | Slam matches: resolve within the backbone slam edition; then points. | (as 3) |
+| 7 verify | `v_inv_load_counts`, `v_inv_same_day_conflicts`, `v_inv_point_players`, foreign keys, overrides honoured, no xref key spanning two tours. | Any of them returns rows. |
+| 8 publish | `ANALYZE`, write `data/build_report.json`, swap the file in. | `tennis.db` is held open by another program. |
+
+**Load accounting.** Registering a file is separate from loading it. Each loader opens one `load_run` per file and records one outcome per source row: `inserted` (new entity), `linked` (xref to an existing entity), `skipped` (reason counted in `load_skip`, with example line numbers), or `queued` (`review_queue`). `v_inv_load_counts` must be empty: every registered file has a finished run, `rows_read = row_count`, and the four outcomes sum to `rows_read`.
+
+**Backbone decisions (from inspecting the real files, mirror commit 83733587):**
+- ATP and WTA player IDs overlap numerically, so `sackmann_atp` and `sackmann_wta` are separate sources.
+- `(tourney_id, match_num)` is not unique: WTA main and qualifying files reuse numbers, and the qual/ITF files repeat ~12k matches verbatim. The match source key is `tourney_id:match_num:round:winner_id:loser_id`. A row that repeats an already-loaded (edition, round, pair) with the same winner and score is skipped as `exact_duplicate_row` (or linked if its key is new). A different result is queued as `duplicate_key_conflict` (~24 rows: pro-tour round-robins where a pair met twice in one round).
+- Placeholder players (`Unknown`, `X X`) are kept in `player` with `is_placeholder = 1`, but matches involving them are skipped (they would act as one very busy fake opponent in ratings). Byes are skipped.
+- Sackmann has only the event's Monday (`tourney_date`), so matches are `date_precision = 'week'`, `match_date` NULL. The same-day invariant is therefore trivially empty for backbone rows.
+- Two draws with the same name in the same week (e.g. `Argentina F5` a/b) become separate tournaments (`name [tourney_id]`).
+- Tournament identity is the normalized tournament name per tour. Sponsor renames therefore split a tournament's history (open question).
+- Doubles, MCP `-stats-` aggregates and docs are ignored by manifest rule.
+
+**MCP resolution.**
+- Player source key: `m:<name>` / `w:<name>`. The cascade is: override; exact normalized name if unique; context (exactly one same-name candidate whose backbone career span ±60 days covers the charted dates); otherwise `review_queue` with up to 5 fuzzy candidates from surname/token blocks. Fuzzy is never auto-linked.
+- Match: unordered pair, plus a backbone edition starting 16 days before to 9 days after the charted date. Tiebreaks: a main-draw match cannot be before its edition starts (±2 days); same round; tournament-name similarity; edition start equal to the charted date (old MCP charts often carry the event's start date). A pair meets once per event, so a single candidate with a different round label still links (confidence 0.9).
+- Charts dated after the backbone's last edition + 16 days are skipped as `after_backbone_cutoff` (they resolve once the daily feed extends the backbone). A second chart of an already-charted match is linked, but its points are skipped (`duplicate_chart`).
+- Point parsing is v0: serve number, ace, double fault, end type, and rally length ("including the serve, excluding errors") read from the deciding serve's code. `raw_first`/`raw_second` are kept for the shot parser.
+
+**Slam point-by-point resolution.**
+- `match_num` is `[12]R..` (1 = men, 2 = women; R = round digit 1..7 = R128..F), or `MS/WS R..` in 2021 AO.
+- Player source keys are scoped to the edition (`atp:2020:ausopen:A Bedene`), because this source writes names differently across years. Context = players in that backbone edition. That resolves exact-name collisions and initial+surname forms (2018-22 AO/FO).
+- Rally length is NULL for AO/FO 2018+ (placeholder values in the source).
 
 ## Point-in-time rules (leakage)
 
@@ -49,7 +87,7 @@ Resolve means: either a xref row exists, or a `review_queue` row exists. Nothing
 
 | Group | Tables |
 |---|---|
-| Plumbing | `schema_meta`, `source`, `ingest_snapshot` |
+| Plumbing | `schema_meta`, `source`, `ingest_snapshot`, `load_run`, `load_skip` |
 | Entities | `player`, `player_alias`, `tournament`, `tournament_alias`, `tournament_edition` |
 | Crosswalks | `player_xref`, `edition_xref`, `match_xref` |
 | Matches | `matches`, `match_player_stats`, `ranking` |
@@ -57,7 +95,7 @@ Resolve means: either a xref row exists, or a `review_queue` row exists. Nothing
 | Benchmark | `odds` |
 | Resolution | `review_queue`, `override_link` |
 | Modeling | `rating_snapshot`, `prediction` |
-| Views | `v_player_match`, `v_inv_same_day_conflicts`, `v_open_review` |
+| Views | `v_player_match`, `v_inv_same_day_conflicts`, `v_inv_load_counts`, `v_inv_point_players`, `v_open_review` |
 
 Design notes:
 - The table is `matches`, not `match`, because MATCH is an SQL keyword.

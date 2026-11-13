@@ -1,0 +1,11 @@
+match_id,Pt,Set1,Set2,Gm1,Gm2,Pts,Gm#,TbSet,Svr,1st,2nd,Notes,PtWinner
+20200202-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,1,0,0,0,0,0-0,1 (1),True,1,4*,,,1
+20200202-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,2,0,0,0,0,15-0,1 (2),True,1,6n,5d,,2
+20200202-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,3,0,0,0,0,15-15,1 (3),True,1,4f1b2f3*,,,2
+20200202-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,4,0,0,6,6,0-0,13 (1),True,2,5b28f1n@,,,1
+20200202-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,5,0,0,6,6,1-0,13 (2),True,2,6,,,x
+20200202-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,5,0,0,6,6,1-0,13 (2),True,2,6#,,,1
+20200202-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,5,0,0,6,6,1-0,13 (2),True,2,6#,,,1
+20200120-M-Australian_Open-F-Novak_Djokovic-Rafael_Nadal,1,0,0,0,0,0-0,1 (1),True,1,4*,,,1
+20200121-M-Australian_Open-R128-Samuel_Groth-Aljaz_Bedene,1,0,0,0,0,0-0,1,True,1,4*,,,1
+20200101-M-Nowhere-F-A_B-C_D,1,0,0,0,0,0-0,1,True,1,4*,,,1

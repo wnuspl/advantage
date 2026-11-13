@@ -1,0 +1,9 @@
+player_id,name_first,name_last,hand,dob,ioc,height,wikidata_id
+100001,Roger,Federer,R,19810808,SUI,185,
+100002,Rafael,Nadal,L,19860603,ESP,185,
+100003,Novak,Djokovic,R,19870522,SRB,188,
+100004,John,Smith,R,19500101,USA,,
+100005,John,Smith,R,19950101,GBR,,
+100006,Sam,Groth,R,19870819,AUS,193,
+100007,Aljaž,Bedene,R,19890718,SLO,183,
+199999,U,Unknown,U,,,,
