@@ -1,0 +1,167 @@
+{
+ "manifest_version": 1,
+ "sources": {
+  "sackmann_atp": {
+   "description": "fixture",
+   "license": "CC BY-NC-SA 4.0",
+   "url": null
+  },
+  "sackmann_slam_pbp": {
+   "description": "fixture",
+   "license": "CC BY-NC-SA 4.0",
+   "url": null
+  },
+  "mcp": {
+   "description": "fixture",
+   "license": "CC BY-NC-SA 4.0",
+   "url": null
+  },
+  "acesapi": {
+   "description": "fixture",
+   "license": "AcesAPI terms",
+   "url": null
+  }
+ },
+ "snapshots": [
+  {
+   "folder": "archive-aaaa1111",
+   "repo": "fixture/archive",
+   "commit": "aaaa1111",
+   "fetched_at": "2026-11-13",
+   "groups": [
+    {
+     "name": "atp_players",
+     "source": "sackmann_atp",
+     "loader": "sackmann_players",
+     "files": [
+      "atp/atp_players.csv"
+     ]
+    },
+    {
+     "name": "atp_matches",
+     "source": "sackmann_atp",
+     "loader": "sackmann_matches",
+     "files": [
+      "atp/atp_matches_[0-9][0-9][0-9][0-9].csv"
+     ]
+    },
+    {
+     "name": "atp_rankings",
+     "source": "sackmann_atp",
+     "loader": "sackmann_rankings",
+     "files": [
+      "atp/atp_rankings_*.csv"
+     ]
+    },
+    {
+     "name": "slam_pbp_matches",
+     "source": "sackmann_slam_pbp",
+     "loader": "slam_pbp_matches",
+     "files": [
+      "slam_pointbypoint/[0-9][0-9][0-9][0-9]-*-matches.csv"
+     ]
+    },
+    {
+     "name": "slam_pbp_points",
+     "source": "sackmann_slam_pbp",
+     "loader": "slam_pbp_points",
+     "files": [
+      "slam_pointbypoint/[0-9][0-9][0-9][0-9]-*-points.csv"
+     ]
+    }
+   ],
+   "ignore": [
+    {
+     "pattern": "atp/atp_matches_doubles_*.csv",
+     "reason": "doubles"
+    },
+    {
+     "pattern": "slam_pointbypoint/*-doubles.csv",
+     "reason": "doubles"
+    },
+    {
+     "pattern": "*.md",
+     "reason": "documentation"
+    }
+   ]
+  },
+  {
+   "folder": "mcp-bbbb2222",
+   "repo": "fixture/mcp",
+   "commit": "bbbb2222",
+   "fetched_at": "2026-11-13",
+   "groups": [
+    {
+     "name": "mcp_matches_m",
+     "source": "mcp",
+     "loader": "mcp_matches",
+     "files": [
+      "charting-m-matches.csv"
+     ]
+    },
+    {
+     "name": "mcp_points_m",
+     "source": "mcp",
+     "loader": "mcp_points",
+     "files": [
+      "charting-m-points-*.csv"
+     ]
+    }
+   ],
+   "ignore": [
+    {
+     "pattern": "charting-*-stats-*.csv",
+     "reason": "derived aggregates"
+    }
+   ]
+  },
+  {
+   "folder": "acesapi-20261110T120000Z",
+   "repo": "acesapi",
+   "commit": "20261110T120000Z",
+   "fetched_at": "2026-11-10T12:00:00Z",
+   "groups": [
+    {
+     "name": "acesapi_draws",
+     "source": "acesapi",
+     "loader": "acesapi_draws",
+     "files": [
+      "draws/*/*.json"
+     ]
+    }
+   ],
+   "ignore": [
+    {
+     "pattern": "pull.json",
+     "reason": "pull metadata: requests, HTTP status, credits"
+    }
+   ]
+  },
+  {
+   "folder": "acesapi-20261114T120000Z",
+   "repo": "acesapi",
+   "commit": "20261114T120000Z",
+   "fetched_at": "2026-11-14T12:00:00Z",
+   "groups": [
+    {
+     "name": "acesapi_draws",
+     "source": "acesapi",
+     "loader": "acesapi_draws",
+     "files": [
+      "draws/*/*.json"
+     ]
+    }
+   ],
+   "ignore": [
+    {
+     "pattern": "pull.json",
+     "reason": "pull metadata: requests, HTTP status, credits"
+    },
+    {
+     "pattern": "tournaments/*.json",
+     "reason": "list_tournaments pages: used to plan draw calls; draws carry the tournament"
+    }
+   ]
+  }
+ ]
+}

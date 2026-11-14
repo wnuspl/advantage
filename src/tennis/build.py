@@ -12,6 +12,8 @@ place and the half-built file at <db>.building for inspection):
   3. backbone      Sackmann players -> tournaments/editions + matches + match_player_stats
                    -> rankings (ATP then WTA).
   4. overrides     data/overrides.csv -> override_link, targets resolved via the xrefs.
+  4b. acesapi      AcesAPI draws (latest pull per tournament): link to the backbone where it
+                   overlaps, extend it past the Sackmann frontier; match_seen timestamps.
   5. mcp           charted matches -> player + match resolution cascade -> points.
   6. slam_pbp      slam matches -> resolution within the slam edition -> points.
   7. verify        invariants (v_inv_load_counts, v_inv_same_day_conflicts,
@@ -27,13 +29,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import db, load_mcp, load_sackmann, load_slam_pbp, overrides
+from . import db, load_acesapi, load_mcp, load_sackmann, load_slam_pbp, overrides
 from .resolve import PlayerResolver
 from .snapshots import BuildError, load_manifest, plan_files, register_files, register_sources
 
 LOADER_ORDER = [
     "sackmann_players", "sackmann_matches", "sackmann_rankings",
-    "mcp_matches", "mcp_points", "slam_pbp_matches", "slam_pbp_points",
+    "acesapi_draws", "mcp_matches", "mcp_points", "slam_pbp_matches", "slam_pbp_points",
 ]
 
 
@@ -95,8 +97,12 @@ def run_build(*, project_root: Path, manifest_path: Path, raw_root: Path, db_pat
         con.commit()
         log(f"overrides: {len(ov.link)} link, {sum(len(v) for v in ov.forbid.values())} forbid")
 
-        # 5-6. point sources, resolved onto the backbone
+        # 4b. AcesAPI extends the backbone; it runs before the point sources so charts
+        # after the Sackmann cutoff can resolve onto its matches.
         resolver = PlayerResolver(con, ov)
+        aces = _load_acesapi(con, log, by_loader, resolver, ov)
+
+        # 5-6. point sources, resolved onto the backbone
         mcp = load_mcp.McpState()
         _run_loader(con, log, by_loader, "mcp_matches",
                     lambda sid, rf: load_mcp.load_matches(con, sid, rf, resolver, ov, mcp))
@@ -110,7 +116,7 @@ def run_build(*, project_root: Path, manifest_path: Path, raw_root: Path, db_pat
 
         # 7. verify
         checks = verify(con)
-        report = build_report(con, checks, ignored, resolver, mcp)
+        report = build_report(con, checks, ignored, resolver, mcp, aces)
         con.execute("INSERT INTO schema_meta VALUES ('built_at', ?)",
                     (datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),))
         con.commit()
@@ -157,10 +163,39 @@ def verify(con: sqlite3.Connection) -> dict[str, list]:
     }
 
 
-def build_report(con, checks, ignored, resolver, mcp) -> dict:
+def _load_acesapi(con, log, by_loader, resolver, ov) -> "load_acesapi.AcesState":
+    """Superseded files first (accounting + match_seen only), then the latest file of each
+    tournament in edition-start order, so a player created in one event is reused later."""
+    files = _files(by_loader, "acesapi_draws")
+    st = load_acesapi.init_state(con)
+    if not files:
+        return st
+    latest = load_acesapi.plan(files)
+    keep = {sid for sid, _ in latest.values()}
+    old = [(sid, rf) for sid, rf in files if sid not in keep]
+    new = sorted(latest.values(), key=lambda x: (_start_key(x[1]), x[1].relpath))
+    for sid, rf in old + new:
+        run = load_acesapi.load_draw(con, sid, rf, resolver, ov, st, latest=sid in keep)
+        con.commit()
+        log(f"  {'acesapi_draws':18s} {rf.folder[-16:]}/{rf.relpath:38s} read={run.read:>8} "
+            f"ins={run.n_inserted:>8} link={run.n_linked:>6} skip={run.n_skipped:>6} queue={run.n_queued:>5}")
+    load_acesapi.write_seen(con, st)
+    con.commit()
+    log(f"acesapi: {st.linked} linked to the backbone, {st.inserted} new matches, "
+        f"{st.players_created} new players")
+    return st
+
+
+def _start_key(rf) -> str:
+    from .acesapi import draw_matches, edition_start, read_json
+    doc = read_json(rf.path)
+    return edition_start(doc.get("tournament") or {}, draw_matches(doc)) or "9999"
+
+
+def build_report(con, checks, ignored, resolver, mcp, aces=None) -> dict:
     one = lambda sql, *a: con.execute(sql, a).fetchone()[0]
     tables = ["player", "tournament", "tournament_edition", "matches", "match_player_stats",
-              "ranking", "point", "player_xref", "edition_xref", "match_xref", "review_queue",
+              "ranking", "point", "match_seen", "player_xref", "edition_xref", "match_xref", "review_queue",
               "override_link", "ingest_snapshot", "load_run"]
     loads = [dict(zip(("source", "loader", "files", "read", "inserted", "linked", "skipped", "queued"), r))
              for r in con.execute(
@@ -199,6 +234,14 @@ def build_report(con, checks, ignored, resolver, mcp) -> dict:
         "player_resolution": resolver.outcomes,
         "point_source_coverage": coverage,
         "mcp_edition_xref_conflicts": mcp.edition_conflicts,
+        "acesapi": None if aces is None else {
+            "frontier": aces.frontier, "linked_to_backbone": aces.linked,
+            "new_matches": aces.inserted, "new_players": aces.players_created,
+            "last_match_date": {t: one(
+                """SELECT MAX(m.match_date) FROM matches m JOIN match_xref x USING (match_id)
+                   JOIN tournament_edition e USING (edition_id) JOIN tournament t USING (tournament_id)
+                   WHERE x.source='acesapi' AND t.tour=?""", t) for t in ("atp", "wta")},
+            "revised_results": one("SELECT COUNT(*) FROM match_seen WHERE revised=1")},
         "ignored_files": len(ignored),
         "ignored_by_reason": _count(r for _, _, r in ignored),
         "invariants": {k: ("ok" if not v else v) for k, v in checks.items()},

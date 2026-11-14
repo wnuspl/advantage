@@ -13,6 +13,7 @@ One local store that merges several tennis data sources behind stable internal I
 | Sackmann `tennis_atp` / `tennis_wta` | `player` (seed), `tournament`, `tournament_edition`, `matches`, `match_player_stats`, `ranking` | Backbone. Verify current coverage and update cadence before relying on it. |
 | Match Charting Project (MCP) | `point`, `shot`, match/player xrefs | CC BY-NC-SA 4.0: attribution, non-commercial, share-alike on redistribution. Charted matches skew toward top players. |
 | Sackmann slam point-by-point | `point` | AO/FO from 2018 have no serve speed and a placeholder rally length. Leave those columns NULL. |
+| AcesAPI (`acesapi`) | `matches`, `tournament_edition`, new `player` rows after the Sackmann cutoff; `match_seen` | Tour-level singles (ATP 250+, WTA incl. 125), qualifying, from 2007; refreshed daily. No serve stats, no Challenger/ITF. Licence: AcesAPI terms (research use and storage allowed; no redistribution as a dataset). See "AcesAPI" below. |
 | tennis-data.co.uk | `odds` (benchmark) | Resolve to `match_id` through `match_xref`. |
 
 Register each in `source` with its license (declared in `data/build_manifest.json`). Every raw *file* gets an `ingest_snapshot` row (sha256, row count, commit). Raw files are immutable and parsers are re-runnable.
@@ -47,6 +48,7 @@ Code: `src/tennis/build.py`. The database is disposable; a build always starts f
 | 2 register | Insert `source` rows; hash + count every planned file; one `ingest_snapshot` row per file. Compare with `data/snapshot_lock.json` (tracked) and add new files to it. | A locked file's bytes changed or it disappeared. |
 | 3 backbone | Sackmann players, then editions + matches + `match_player_stats`, then rankings. | A loader's outcomes don't add up to rows read. |
 | 4 overrides | `data/overrides.csv` -> `override_link`. | Bad header, unknown target, link+forbid on the same target. |
+| 4b AcesAPI | Latest pull of each tournament: link to the backbone where it overlaps, extend it past the frontier; then `match_seen`. Runs before MCP so later charts resolve. | (as 3) |
 | 5 MCP | Charted matches: resolve both names, then the match; then points. | (as 3) |
 | 6 slam pbp | Slam matches: resolve within the backbone slam edition; then points. | (as 3) |
 | 7 verify | `v_inv_load_counts`, `v_inv_same_day_conflicts`, `v_inv_point_players`, foreign keys, overrides honoured, no xref key spanning two tours. | Any of them returns rows. |
@@ -78,6 +80,36 @@ Code: `src/tennis/build.py`. The database is disposable; a build always starts f
 
 **Hand review.** `python scripts/export_review.py` writes the open queue to `data/review_open.csv` (gitignored), with candidates as stable source keys. Confirmed rows go into `data/overrides.csv`.
 - Rally length is NULL for AO/FO 2018+ (placeholder values in the source).
+
+## AcesAPI (results after the Sackmann cutoff)
+
+The Sackmann match files stop at 2026-05-25 (tour level: Roland Garros 2026). AcesAPI supplies tour-level results from then on. Code: `src/tennis/acesapi.py` (parsing), `acesapi_fetch.py` (client, pull planning), `load_acesapi.py` (loader), `scripts/fetch_acesapi.py` (CLI). Response shapes were checked against live responses on 2026-11-14 (Roland Garros 2026, then the full first pull: 6,448 rows, every round label and outcome mapped).
+
+**Pulls are snapshots.** `python scripts/fetch_acesapi.py --pin` writes one immutable folder `data/raw/acesapi-<YYYYMMDDTHHMMSSZ>/` (the pull id, UTC):
+- `draws/<tour>/<tournament_id>.json`: one `get_tournament draw=all` response per tournament, saved byte for byte (2 credits each).
+- `tournaments/*.json`: the `list_tournaments` pages used to plan the pull (1 credit each). Ignored by the build.
+- `pull.json`: every request, its HTTP status, response sha256 and credits left. Ignored by the build.
+
+`--pin` appends the folder to `data/build_manifest.json` (commit = pull id, `fetched_at` = pull time). From there it is an ordinary snapshot: files are hashed into `data/snapshot_lock.json`, and a JSON file's `row_count` is its number of match rows. The key comes from `ACESAPI_KEY` in the environment or in `.env`.
+
+**What a pull fetches.** Tournaments that have started and overlap `[--since, today]`, except those an earlier pull already saw final more than `--refetch-days` (10) after they ended. AcesAPI rewrites the current season every day at 10:00 UTC, so recent tournaments are fetched again to pick up corrections. `--max-credits` caps a pull; whatever is left over is picked up by the next one. `--plan` spends only the list calls and prints what would be fetched. Steady state is about 20-25 tournaments a month, or about 50 credits plus lists; the free plan gives 500.
+
+**Timestamps and supersession.**
+- A tournament appears in many pulls. The build loads the **latest pull** of each tournament (pull ids sort as UTC timestamps). Its rows in earlier pulls are read and skipped as `superseded_by_later_pull`, so `v_inv_load_counts` still accounts for every row.
+- `match_seen(first_seen_at, last_seen_at, n_pulls, revised)` keeps the knowledge time that supersession would otherwise lose. `first_seen_at` is the first pull that reported the match as final: the earliest moment this project could have known the result. `revised = 1` if winner, score or outcome changed between pulls. Use it for any "as known at time T" replay (live prediction, the odds benchmark). Backtests on results alone can ignore it.
+- `matches.match_date` is the API's local match day, so these rows are `date_precision = 'day'` and are covered by `v_inv_same_day_conflicts`. That view allows two rounds of one event on one day: the first pull has 85 such rain/weekend doubleheaders, and none across events.
+- Edition `start_date` is the first main-draw match day, the same convention as Sackmann's `tourney_date` (which is not always a Monday). AcesAPI's own `start_date` includes qualifying, so it is only a fallback.
+
+**Overlap and the frontier.** The frontier per tour is the last backbone edition start minus 7 days (2026-05-25 for both tours on the current mirror). Every row is first matched to the backbone: unordered pair, edition start +-3 days, with round and tournament name as tiebreaks (`link_match`). Then:
+- Candidates are backbone matches only: never a row AcesAPI itself inserted (its match ids are unique), never across the qualifying/main-draw line (a lucky loser can meet the same opponent in both). A candidate with the other winner is queued as `result_conflict`, never linked.
+- Linked rows (`match_xref` method `pair_tournament_date`) are the validation sample against Sackmann.
+- An unlinked row in an edition the backbone already has goes into that edition only if the backbone has **no** match in that round (e.g. slam qualifying, which Sackmann lacks). A partial round is never filled, so a row that merely failed to link can't duplicate a backbone match.
+- Otherwise, before the frontier the row is queued (`no_backbone_match`). Past the frontier it is inserted as a new match (`match_xref` method `seed`, key `atp:<match_id>`) in a new edition (`edition_xref` key `atp:<tournament_id>`).
+- Tournament identity: an existing tournament with an edition about a year earlier (+-21 days) whose alias equals the AcesAPI name, else the city, else shares a distinctive token (4+ letters, not "open"/"masters"/...: "Rolex Shanghai Masters" ~ "Shanghai Masters"). Exactly one must qualify at a step. The new edition inherits that tournament's Sackmann `level`. Otherwise it gets a new tournament with `level` `G` for majors, else `X` (tier unknown). `X` matches are rated but not in the "tour level" scoring scope (`elo.TOUR_LEVELS`), since many are WTA 125s. The AcesAPI name is added as an alias, so next year's edition finds it.
+
+**Players.** Source key `atp:<id>` / `wta:<id>`, resolved with the same cascade as MCP: override, exact name, event context, opponent anchoring. An unresolved name becomes a **new player** only past the frontier, and only when the resolver found no candidate at all, or every fuzzy candidate has a different country. Its `review_queue` row is kept as `resolved`. Otherwise the match is queued as `player_unresolved`.
+
+**Not covered.** Serve stats (the light layer uses its win/loss update for these matches), Challenger and ITF events, rankings (not fetched yet). Retirements and walkovers arrive as `outcome` and map to `matches.status`.
 
 ## models.db (modeling results)
 
@@ -161,6 +193,7 @@ Spec: `HEAVY_LAYER_SPEC.md`. Code: `src/tennis/mcp_notation.py` (parser), `src/t
 - Rankings: use the latest `ranking_date` strictly before the match, never the rank stored on the match row for features.
 - Model outputs (pre-match ratings, predictions) live in `models.db`, not here. A prediction is made from state strictly before the match and evaluated walk-forward only.
 - Odds are a benchmark. Using them as features needs verified capture times.
+- Rolling sources (AcesAPI): `match_seen.first_seen_at` is when a result was first known. A live or "as of T" replay must use only matches with `first_seen_at <= T`. `ingest_snapshot.fetched_at` is the pull time of the version actually loaded.
 
 ## Table map
 
@@ -169,7 +202,7 @@ Spec: `HEAVY_LAYER_SPEC.md`. Code: `src/tennis/mcp_notation.py` (parser), `src/t
 | Plumbing | `schema_meta`, `source`, `ingest_snapshot`, `load_run`, `load_skip` |
 | Entities | `player`, `player_alias`, `tournament`, `tournament_alias`, `tournament_edition` |
 | Crosswalks | `player_xref`, `edition_xref`, `match_xref` |
-| Matches | `matches`, `match_player_stats`, `ranking` |
+| Matches | `matches`, `match_player_stats`, `ranking`, `match_seen` |
 | Points | `point`, `shot` (phase 2) |
 | Benchmark | `odds` |
 | Resolution | `review_queue`, `override_link` |
@@ -185,7 +218,8 @@ Design notes:
 ## Invariants (write these as tests first)
 
 ```sql
--- 1. No player in two matches on the same exact day (must return 0 rows)
+-- 1. No player in two matches on the same exact day in different events, or twice in one
+--    round (must return 0 rows). Two rounds of one event on one day are real doubleheaders.
 SELECT * FROM v_inv_same_day_conflicts;
 
 -- 2. A match's winner and loser are both distinct players (enforced by CHECK; test the rejection)

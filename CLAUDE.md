@@ -22,14 +22,15 @@ Predict ATP/WTA singles match outcomes with a two-layer model, judged by walk-fo
 - When building training rows, randomize or canonicalize player order so the model never sees "winner first."
 - Report log loss and Brier, plus calibration. Accuracy alone is not a metric here.
 
-## Data sources (as of 2026-11-13)
+## Data sources (as of 2026-11-14)
 Jeff Sackmann's `tennis_atp`, `tennis_wta` and slam point-by-point repos were **removed from GitHub (404 as of Oct 2026)**. Only the Match Charting Project repo is still upstream.
 
 | Source | Use | Notes |
 |---|---|---|
 | `Aneeshers/tennis-sackmann-archive` (mirror) | Backbone: players, matches, per-match serve stats, rankings; slam point-by-point | Archive, not a fork: upstream commit hashes aren't recorded, so we record our own commit + sha256. Layout verified 2026-11-13: `atp/`, `wta/`, `slam_pointbypoint/`. Matches end at tourney_date 2026-05-25, rankings at 2026-06-08, slam point data 2011-2024. |
 | `JeffSackmann/tennis_MatchChartingProject` | Heavy layer: point/shot data | Still upstream but could vanish: keep our own pinned copy. |
-| Daily results feed (deferred) | Light layer after the mirror's cutoff | `scripts/ingest_daily.py` is a skeleton. Field names are guesses; no loader into `matches` yet. Third-party scraping: check terms and pricing before using. |
+| AcesAPI (`acesapi`, free plan: 500 credits/month) | Results after the mirror's cutoff: tour-level singles + qualifying + WTA 125, daily | `scripts/fetch_acesapi.py --pin` (key `ACESAPI_KEY` in `.env`), then `build_db.py`. One immutable pull folder per fetch; the build loads the latest pull per tournament; `match_seen` keeps first-seen times. No serve stats, no Challenger/ITF. Terms: storage and research use allowed, no redistribution. See DESIGN.md "AcesAPI". First pull 2026-11-14 (109 draws, 221 credits). |
+| Scraped daily feed (shelved) | Stats / Challenger coverage | `scripts/ingest_daily.py` is a skeleton (Apify). Only if Challenger coverage or serve stats become worth it. |
 | tennis-data.co.uk, odds APIs | Benchmark (closing odds) | Later. Odds are never a training feature unless capture times are verified. |
 
 All Sackmann-derived data is **CC BY-NC-SA 4.0**: attribution required, non-commercial only, share-alike on redistribution. Keep the licence in `source` and attribute in any write-up.
@@ -51,7 +52,7 @@ All Sackmann-derived data is **CC BY-NC-SA 4.0**: attribution required, non-comm
 ## Invariants (must be tested)
 - Each `(source, source_key)` maps to exactly one entity.
 - Every source row resolves, is skipped with a reason, or lands in `review_queue`. Nothing is silently dropped.
-- No player appears in two matches on the same exact day (`v_inv_same_day_conflicts` empty).
+- No player appears in two matches on the same exact day in different events, or twice in one round (`v_inv_same_day_conflicts` empty). Two rounds of one event on one day are allowed: real rain doubleheaders (85 in the first AcesAPI pull).
 - Point rows: server and returner are the two players of the match.
 - No feature, rating, or PCA fit uses data from after the match being predicted.
 

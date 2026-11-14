@@ -21,6 +21,11 @@
       "description": "Match Charting Project: charted matches and point-by-point shot notation",
       "license": "CC BY-NC-SA 4.0 (attribution: Jeff Sackmann / Tennis Abstract and MCP charters; non-commercial; share-alike)",
       "url": "https://github.com/JeffSackmann/tennis_MatchChartingProject"
+    },
+    "acesapi": {
+      "description": "AcesAPI (REST): ATP/WTA tour-level singles results incl. qualifying and WTA 125, daily; one immutable pull folder per fetch (scripts/fetch_acesapi.py)",
+      "license": "AcesAPI terms (2026-10-17): store, derive and use for research/model training; no redistribution as a dataset or feed; no attribution required",
+      "url": "https://acesapi.com"
     }
   },
   "snapshots": [
@@ -82,6 +87,32 @@
         {"pattern": ".git*", "reason": "repo metadata"},
         {"pattern": "*.md", "reason": "documentation"},
         {"pattern": "*.txt", "reason": "documentation"}
+      ]
+    },
+    {
+      "folder": "acesapi-20261114T183408Z",
+      "repo": "acesapi",
+      "commit": "20261114T183408Z",
+      "fetched_at": "2026-11-14T18:34:08Z",
+      "groups": [
+        {
+          "name": "acesapi_draws",
+          "source": "acesapi",
+          "loader": "acesapi_draws",
+          "files": [
+            "draws/*/*.json"
+          ]
+        }
+      ],
+      "ignore": [
+        {
+          "pattern": "pull.json",
+          "reason": "pull metadata: requests, HTTP status, credits"
+        },
+        {
+          "pattern": "tournaments/*.json",
+          "reason": "list_tournaments pages: used to plan draw calls; draws carry the tournament"
+        }
       ]
     }
   ]

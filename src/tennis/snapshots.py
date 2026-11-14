@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
 
+from .acesapi import count_draw_rows
+
 
 class BuildError(RuntimeError):
     """A condition that must stop the build (layout drift, changed raw bytes, bad manifest)."""
@@ -89,12 +91,25 @@ def plan_files(manifest: dict, raw_root: Path) -> tuple[list[RawFile], list[tupl
     return files, ignored
 
 
-def file_stats(path: Path) -> tuple[str, int]:
-    """sha256 of the bytes and the number of CSV data records (header excluded)."""
+# Row counters for non-CSV raw files, by loader. A JSON file's "rows" are what its loader
+# reads one outcome for (e.g. match rows in an AcesAPI get_tournament response).
+JSON_ROW_COUNTERS = {"acesapi_draws": count_draw_rows}
+
+
+def file_stats(path: Path, loader: str | None = None) -> tuple[str, int]:
+    """sha256 of the bytes and the number of data records (CSV: header excluded)."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         while chunk := f.read(1 << 20):
             h.update(chunk)
+    if path.suffix.lower() == ".json":
+        counter = JSON_ROW_COUNTERS.get(loader or "")
+        if counter is None:
+            raise BuildError(f"{path}: no row counter for JSON files of loader {loader!r}")
+        try:
+            return h.hexdigest(), counter(path)
+        except (ValueError, KeyError, TypeError) as e:
+            raise BuildError(f"{path}: cannot count rows ({e})") from e
     with open(path, encoding="utf-8-sig", newline="") as f:
         reader = csv.reader(f)
         next(reader, None)
@@ -135,7 +150,7 @@ def register_files(con: sqlite3.Connection, files: list[RawFile], project_root: 
     lock = read_lock(lock_path)
     stats = {}
     for i, rf in enumerate(files, 1):
-        stats[rf] = file_stats(rf.path)
+        stats[rf] = file_stats(rf.path, rf.loader)
         if i % 100 == 0 or i == len(files):
             progress(f"  hashed {i}/{len(files)} files")
 

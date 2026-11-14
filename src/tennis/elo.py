@@ -25,6 +25,8 @@ from array import array
 from dataclasses import asdict, dataclass, replace
 
 # Tour-level main draws (verified against the level codes in tennis.db, 2026-11-13).
+# AcesAPI events with no Sackmann history get level 'X' (tier unknown). They are rated but
+# not scored as tour level: many are WTA 125s, which Sackmann files as 'C'.
 TOUR_LEVELS = {"atp": {"G", "M", "A", "F", "O"},
                "wta": {"G", "PM", "P", "I", "W", "T1", "T2", "T3", "T4", "T5", "F", "O"}}
 # Not scored: no tennis played (walkover), or result not a contest outcome (default, unfinished).

@@ -1,0 +1,92 @@
+{
+ "data": {
+  "tour": "ATP",
+  "tournament": {
+   "tournament_id": "339-2020",
+   "espn_tournament_id": 339,
+   "name": "Brisbane International",
+   "season": 2020,
+   "start_date": "2020-01-04",
+   "end_date": "2020-01-12",
+   "city": "Brisbane",
+   "country": "Australia",
+   "major": false,
+   "surface": "hard",
+   "indoor": false,
+   "status": "final"
+  },
+  "champion": null,
+  "runner_up": null,
+  "rounds": [
+   {
+    "round": "Round 1",
+    "round_order": 11,
+    "draw": "main",
+    "matches": [
+     {
+      "match_id": "3001",
+      "tournament_id": "339-2020",
+      "tournament": "Brisbane International",
+      "season": 2020,
+      "surface": "hard",
+      "indoor": false,
+      "starts_at": "2020-01-06T09:00:00.000Z",
+      "match_date": "2020-01-06",
+      "draw": "main",
+      "round": "Round 1",
+      "round_order": 11,
+      "court": null,
+      "player1_id": "98",
+      "player1": "Ann Other",
+      "player1_country": "FIN",
+      "seed1": null,
+      "player2_id": "13",
+      "player2": "Novak Djokovic",
+      "player2_country": "SRB",
+      "seed2": null,
+      "winner_id": "98",
+      "status": "final",
+      "outcome": "completed",
+      "score": "6-4 6-4",
+      "sets": []
+     }
+    ]
+   },
+   {
+    "round": "Final",
+    "round_order": 22,
+    "draw": "main",
+    "matches": [
+     {
+      "match_id": "3002",
+      "tournament_id": "339-2020",
+      "tournament": "Brisbane International",
+      "season": 2020,
+      "surface": "hard",
+      "indoor": false,
+      "starts_at": "2020-01-12T09:00:00.000Z",
+      "match_date": "2020-01-12",
+      "draw": "main",
+      "round": "Final",
+      "round_order": 22,
+      "court": null,
+      "player1_id": "12",
+      "player1": "Rafael Nadal",
+      "player1_country": "ESP",
+      "seed1": null,
+      "player2_id": "13",
+      "player2": "Novak Djokovic",
+      "player2_country": "SRB",
+      "seed2": null,
+      "winner_id": "12",
+      "status": "final",
+      "outcome": "walkover",
+      "score": "w/o",
+      "sets": []
+     }
+    ]
+   }
+  ],
+  "count": 2
+ }
+}

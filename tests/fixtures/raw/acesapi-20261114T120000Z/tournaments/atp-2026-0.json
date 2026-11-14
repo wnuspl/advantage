@@ -1,0 +1,24 @@
+{
+ "data": {
+  "tour": "ATP",
+  "season": 2026,
+  "tournaments": [
+   {
+    "tournament_id": "560-2026",
+    "espn_tournament_id": 560,
+    "name": "US Open",
+    "season": 2026,
+    "start_date": "2026-08-17",
+    "end_date": "2026-09-02",
+    "city": "New York",
+    "country": "USA",
+    "major": true,
+    "surface": "hard",
+    "indoor": false,
+    "status": "live"
+   }
+  ],
+  "count": 1,
+  "next_offset": null
+ }
+}

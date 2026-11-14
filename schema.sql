@@ -1,8 +1,11 @@
--- Tennis data backbone: SQLite schema, v3
+-- Tennis data backbone: SQLite schema, v4
 -- Applied by src/tennis/db.py (executescript). The database is disposable:
 -- `python scripts/build_db.py` rebuilds tennis.db from data/raw/ + data/build_manifest.json.
 -- Conventions: STRICT tables, ISO-8601 TEXT for dates/times, own surrogate IDs,
 -- source IDs only ever live in *_xref tables.
+--
+-- v4 (2026-11-14): match_seen (when a rolling source first/last reported each result);
+-- AcesAPI pulls as a source (JSON files; tournament_edition.level 'X' = tier unknown).
 --
 -- v3 (2026-11-13): rating_snapshot and prediction moved out to models.db
 -- (models_schema.sql), keyed by stable source keys so model results survive rebuilds.
@@ -22,7 +25,7 @@ CREATE TABLE schema_meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 ) STRICT;
-INSERT INTO schema_meta (key, value) VALUES ('schema_version', '3');
+INSERT INTO schema_meta (key, value) VALUES ('schema_version', '4');
 
 CREATE TABLE source (
   source      TEXT PRIMARY KEY,   -- 'sackmann_atp','sackmann_wta','sackmann_slam_pbp','mcp', ...
@@ -36,11 +39,11 @@ CREATE TABLE source (
 CREATE TABLE ingest_snapshot (
   snapshot_id   INTEGER PRIMARY KEY,
   source        TEXT NOT NULL REFERENCES source(source),
-  source_ref    TEXT NOT NULL,      -- commit of the downloaded repo snapshot
+  source_ref    TEXT NOT NULL,      -- commit of the downloaded repo snapshot; API pulls: pull id
   file_relpath  TEXT NOT NULL,      -- path inside the snapshot folder, forward slashes
   raw_path      TEXT NOT NULL,      -- path relative to the project root
   sha256        TEXT NOT NULL,
-  row_count     INTEGER NOT NULL,   -- CSV data records (header excluded)
+  row_count     INTEGER NOT NULL,   -- CSV data records (header excluded); JSON: rows per loader
   file_group    TEXT NOT NULL,      -- manifest group; names the loader
   loader        TEXT NOT NULL,
   fetched_at    TEXT,
@@ -138,6 +141,7 @@ CREATE TABLE tournament_edition (
   start_date    TEXT NOT NULL,
   end_date      TEXT,
   level         TEXT,             -- raw Sackmann tourney_level: 'G','M','A','C','S','D','15', ...
+                                  -- 'X' = AcesAPI tour-level event of unknown tier
   surface       TEXT CHECK (surface IS NULL OR surface IN ('hard','clay','grass','carpet')),
   indoor        INTEGER CHECK (indoor IS NULL OR indoor IN (0,1)),
   draw_size     INTEGER,
@@ -236,6 +240,22 @@ CREATE TABLE ranking (
   PRIMARY KEY (tour, ranking_date, player_id)
 ) STRICT;
 CREATE INDEX idx_ranking_player ON ranking (player_id, ranking_date);
+
+-- Knowledge time for rolling sources (AcesAPI rewrites the current season daily, so one
+-- result appears in many pulls). first_seen_at = the first pull in which the source
+-- reported the match as final: the earliest moment we could have known the result.
+-- revised = 1 if winner, score or outcome differed between pulls.
+CREATE TABLE match_seen (
+  match_id      INTEGER NOT NULL REFERENCES matches(match_id) ON DELETE CASCADE,
+  source        TEXT NOT NULL REFERENCES source(source),
+  source_key    TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,      -- ISO-8601 UTC, the pull time
+  last_seen_at  TEXT NOT NULL,
+  n_pulls       INTEGER NOT NULL,
+  revised       INTEGER NOT NULL CHECK (revised IN (0,1)),
+  PRIMARY KEY (source, source_key)
+) STRICT;
+CREATE INDEX idx_match_seen_match ON match_seen (match_id);
 
 ------------------------------------------------------------------------
 -- 4. Point-level data (MCP, slam point-by-point)
@@ -345,14 +365,23 @@ SELECT m.match_id, m.loser_id,  m.winner_id, 0,
        e.start_date, m.round_order, m.match_date, e.surface, m.status
 FROM matches m JOIN tournament_edition e USING (edition_id);
 
--- Invariant: no player appears in two matches on the same exact day. Must be empty.
+-- Invariant: no player plays two matches on the same exact day in DIFFERENT events, or
+-- twice in the same round. Must be empty. Two rounds of one event on one day are real
+-- (rain doubleheaders, Q1+Q2 on a weekend): 85 such days in the first AcesAPI pull
+-- (2026-11-14), all in one event and in consecutive rounds, so they are not flagged.
 CREATE VIEW v_inv_same_day_conflicts AS
+WITH pm AS (
+  SELECT match_id, edition_id, round, match_date, status, winner_id AS player_id FROM matches
+  UNION ALL
+  SELECT match_id, edition_id, round, match_date, status, loser_id FROM matches
+)
 SELECT a.player_id, a.match_date, a.match_id AS match_a, b.match_id AS match_b
-FROM v_player_match a
-JOIN v_player_match b
+FROM pm a
+JOIN pm b
   ON a.player_id = b.player_id AND a.match_date = b.match_date AND a.match_id < b.match_id
 WHERE a.match_date IS NOT NULL
-  AND a.status NOT IN ('walkover') AND b.status NOT IN ('walkover');
+  AND a.status NOT IN ('walkover') AND b.status NOT IN ('walkover')
+  AND (a.edition_id <> b.edition_id OR a.round = b.round);
 
 -- Invariant: every registered source row is accounted for. Must be empty.
 CREATE VIEW v_inv_load_counts AS
