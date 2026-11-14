@@ -114,6 +114,32 @@
           "reason": "list_tournaments pages: used to plan draw calls; draws carry the tournament"
         }
       ]
+    },
+    {
+      "folder": "acesapi-20261114T195814Z",
+      "repo": "acesapi",
+      "commit": "20261114T195814Z",
+      "fetched_at": "2026-11-14T19:58:14Z",
+      "groups": [
+        {
+          "name": "acesapi_draws",
+          "source": "acesapi",
+          "loader": "acesapi_draws",
+          "files": [
+            "draws/*/*.json"
+          ]
+        }
+      ],
+      "ignore": [
+        {
+          "pattern": "pull.json",
+          "reason": "pull metadata: requests, HTTP status, credits"
+        },
+        {
+          "pattern": "tournaments/*.json",
+          "reason": "list_tournaments pages: used to plan draw calls; draws carry the tournament"
+        }
+      ]
     }
   ]
 }
