@@ -227,7 +227,7 @@ class ApiTest(unittest.TestCase):
             nl = con.execute("SELECT COUNT(*) FROM style_loading WHERE fit_id=?", (fid,)).fetchone()[0]
             ver = con.execute("SELECT value FROM models_meta WHERE key='models_schema_version'").fetchone()[0]
         self.assertEqual(nl, nf * n)
-        self.assertEqual(ver, "2")
+        self.assertGreaterEqual(int(ver), 2)   # v2 = heavy layer; later versions keep it
 
 
 if __name__ == "__main__":

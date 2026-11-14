@@ -142,3 +142,28 @@ CREATE TABLE IF NOT EXISTS style_vectors (
 CREATE INDEX IF NOT EXISTS idx_style_vectors_fit ON style_vectors (fit_id);
 
 UPDATE models_meta SET value = '2' WHERE key = 'models_schema_version' AND CAST(value AS INTEGER) < 2;
+
+------------------------------------------------------------------------
+-- Matchup layer (schema version 3). Code: src/tennis/matchup/. One model_run per model
+-- of a walk-forward run (model_id 'matchup_<name>_v1'); run_metric block 'wf_test' holds
+-- pooled test metrics, 'test:<block start>' per-block ones. A bundle is what one fold
+-- trained: weights (joblib/torch file) + the heavy-layer fit_ids + the frozen alpha.
+------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS matchup_bundle (
+  run_id        INTEGER NOT NULL REFERENCES model_run(run_id) ON DELETE CASCADE,
+  tour          TEXT NOT NULL CHECK (tour IN ('atp','wta')),
+  test_from     TEXT NOT NULL,      -- test block [test_from, test_to)
+  test_to       TEXT NOT NULL,
+  train_cutoff  TEXT NOT NULL,      -- train < cutoff <= validation < test_from
+  fit_ids_json  TEXT NOT NULL,      -- {side: style_fit.fit_id}; every vector of the fold used these
+  alpha         REAL NOT NULL,      -- frozen Glicko offset scale
+  n_alpha       INTEGER,            -- rows alpha was fitted on
+  n_train       INTEGER,
+  n_val         INTEGER,
+  n_test        INTEGER,
+  info_json     TEXT,               -- training info (epochs, best iteration, ...)
+  path          TEXT,               -- model file relative to the repo root; NULL = nothing to store
+  PRIMARY KEY (run_id, tour, test_from)
+) STRICT;
+
+UPDATE models_meta SET value = '3' WHERE key = 'models_schema_version' AND CAST(value AS INTEGER) < 3;

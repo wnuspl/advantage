@@ -93,6 +93,8 @@ def sweep(con, prep: Prepared, grid: list, *, sweep_id: str,
     """One full-history pass per distinct update setting; every blend value of that
     setting is scored from the same pass. Each (setting, blend) is its own model_run."""
     spec = ratingmodels.get(model)
+    if spec.attach:
+        spec.attach(con, prep.m)
     groups: dict = {}
     for p in grid:
         if not isinstance(p, spec.params_cls):
@@ -103,7 +105,7 @@ def sweep(con, prep: Prepared, grid: list, *, sweep_id: str,
         res = spec.run(prep.m, key)
         for p in members:
             run_id = models_db.start_run(con, model, p.as_dict(), sweep_id=sweep_id)
-            scores = score_block(prep, spec.predict(res, p.blend), *val)
+            scores = score_block(prep, spec.predict(res, p), *val)
             _write_metrics(con, run_id, "val", *val, scores)
             models_db.finish_run(con, run_id)
             s = scores[PRIMARY_SCOPE]
@@ -150,6 +152,8 @@ def finalize(con, prep: Prepared, run_id: int, *, test: tuple[str, str] = DEFAUL
              save_predictions: bool = False) -> dict[str, Score]:
     """Score the held-out test block for one chosen run; optionally save per-match rows."""
     spec, params = model_of(con, run_id)
+    if spec.attach:
+        spec.attach(con, prep.m)
     res = spec.run(prep.m, params)
     scores = score_block(prep, res.p_winner, *test)
     _write_metrics(con, run_id, "test", *test, scores)

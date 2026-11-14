@@ -1,20 +1,30 @@
 # Advantage: tennis match prediction
 
 ## Goal
-Predict ATP/WTA singles match outcomes with a two-layer model, judged by walk-forward log loss / Brier against (1) surface-aware Elo/Glicko and (2) closing odds.
+Predict ATP/WTA singles match outcomes, judged by walk-forward log loss / Brier against (1) the Glicko-2 baseline and (2) closing odds. **Target: tour-level test log loss below 0.60** (calibrated Glicko-2: 0.6045 on 2022-26). First measure the closing-odds log loss on the same matches, to know whether the target is reachable.
 
-- **Heavy layer (retrain weekly/monthly):** per-player style embeddings built with **PCA** over hand-built style features from Match Charting Project (MCP) point/shot data (serve direction mix, ace/unreturned rate, rally-length distribution, shot-type mix, net frequency, return depth, etc.), computed per surface.
-- **Light layer (update after every match):** a **Glicko-style** rating per player with a rating deviation (uncertainty) that grows with inactivity and shrinks with results. It models recent form as a *delta from the heavy layer's expectation*, not a standalone strength number.
-- Point probabilities (serve/return) roll up analytically (Markov chain) to game, set, match win probability.
+**Ratings are the model; style is an optional correction** (re-prioritized 2026-11-14 after the style experiments in "Findings" below). Order of importance:
+
+1. **Ratings layer (primary, updated after every match):** serve and return ratings per player (per surface where data allows) with Glicko-style deviation. Updated on **serve/return points won** wherever `match_player_stats` has them, on the result otherwise. Point probabilities roll up analytically (Markov chain) to game, set and match win probability, so best-of-3 vs best-of-5 and tiebreak rules come for free.
+2. **Context features (cheap):** best-of-5, rest days and recent workload, home country, tournament level, layoffs. Added on top of the ratings by a small calibrated model.
+3. **Style layer (optional, small):** per-player phase profiles from MCP point data (rally-length steering and win rate by phase), contributing a heavily shrunk matchup correction. Kept only if it lowers walk-forward log loss once 1 and 2 are in. The PCA style vectors (`style_pca_v1`) and the matchup layer built on them stay in the repo as a measured negative result; don't extend them.
+
+"Heavy" and "light" in older docs and code mean slow-to-retrain and per-match, not important and unimportant.
 
 ## Modeling decisions (agreed, and why)
-- **PCA, not a learned embedding, first.** Interpretable, cheap, and a baseline the learned model must beat. Standardize features, shrink thin-data players toward the population mean *before* PCA, keep the number of components by explained variance and validation loss (not a fixed number).
-- **PCA is fit on training data only**, inside each walk-forward fold. Fitting it on all years leaks the future.
-- **PCA is linear and has no matchup term.** Style vectors for the two players feed a downstream interaction model (e.g. product/difference of vectors into logistic regression or gradient boosting). Do not assume the embeddings alone capture "style A beats style B."
-- **MCP is a biased sample** (volunteer-charted, skews to top players and big matches). Track charted-match count per player. Below a threshold, the style vector falls back to the population mean and the light layer carries the player.
-- **Glicko-style light layer:** state per player (and per surface where data allows): rating, deviation, optionally volatility (Glicko-2). Update from each result; inflate deviation after inactivity and on surface change. Prefer an update on serve/return point outcomes when per-match stats exist (more information per match than win/loss), and fall back to the win/loss update when only a result exists. The light layer must tolerate matches with no stats.
-- **No double-counting:** the heavy layer is trained with a cutoff so the light layer's residuals aren't already absorbed by it.
-- Retirements/walkovers: exclude from light-layer updates (or down-weight); decide once, document here. (Data side done: `matches.status` is `retired`/`walkover`/`default`/`unfinished`; the model decision is still open.)
+- **Ratings layer:** state per player (and per surface where data allows): serve rating, return rating, deviation, optionally volatility (Glicko-2). Inflate deviation after inactivity and on surface change. Update on serve/return points won when per-match stats exist (far more information per match than win/loss); fall back to the win/loss update when only a result exists. It must tolerate matches with no stats: AcesAPI results after the mirror's cutoff (2026-05-25) have none.
+- **Point probabilities -> match probability by Markov chain**, with best-of and final-set tiebreak rules taken from the results data, never assumed.
+- **Calibrate the output.** A scalar on the Glicko logit alone gained 0.0006 log loss (run 203 vs 187): raw Glicko-2 is slightly overconfident. Every new model is scored before and after a calibration fitted on past data only.
+- **Context model on top of the ratings:** a small logistic or gradient-boosted model on the ratings' logit plus context features. Antisymmetric in the two players (or trained on both orderings), so P(A beats B) = 1 - P(B beats A).
+- **Style layer only as a shrunk correction.** Point-in-time phase profiles (shrunk toward the population), combined A x B, with the shrinkage fitted on validation folds. MCP is a biased sample (top players, big matches): players without enough charted points get no correction, never an imputed one.
+- **No double-counting:** any layer trained on residuals of another uses a cutoff, so the residuals aren't already absorbed.
+- Retirements/walkovers: exclude from rating updates (or down-weight); decide once, document here. (Data side done: `matches.status` is `retired`/`walkover`/`default`/`unfinished`; the model decision is still open.)
+
+## Findings (2026-11-14; details in DESIGN.md and docs/composite_report.md)
+- **PCA style vectors + matchup layer** (bilinear, siamese, LightGBM; sweep `matchup-v1-full`, runs 202-208): no significant gain over calibrated Glicko-2 (best: siamese -0.0003 ± 0.0003 log loss on tour-level 2022-26). Not even in close matches (|p - 0.5| < 0.1). Most of the siamese signal is per-player ("better than the rating says"), not pairing-specific.
+- **Personal style edges don't repeat:** a player's over-performance against an opponent-style cluster correlates r ≈ 0.02 between periods (inside the shuffle-noise band); general over-performance vs Glicko repeats at r ≈ 0.17. Graph: `reports/personal_style_matchups.png`.
+- **Phase profiles are real but small:** win rate by phase (serve/return x short/medium/long rally, net) relative to the player's own level repeats at r = 0.27-0.70 across periods. A phase model's A x B term predicts points won beyond Glicko at ~3 SE, but its size is ~0.1 pp of points (estimated ~0.0002 log loss). The per-player part is stronger (~7 SE, ~0.001 estimated). Not yet controlled for surface. Graph: `reports/phase_test.png`.
+- **Implication:** the information Glicko misses is mostly per-player and visible in points won, which `match_player_stats` has for nearly every tour-level match. Points-based ratings are the main lever.
 
 ## Evaluation rules
 - Walk-forward only. Never shuffle. Train on the past, predict the next block, roll forward.
@@ -28,7 +38,7 @@ Jeff Sackmann's `tennis_atp`, `tennis_wta` and slam point-by-point repos were **
 | Source | Use | Notes |
 |---|---|---|
 | `Aneeshers/tennis-sackmann-archive` (mirror) | Backbone: players, matches, per-match serve stats, rankings; slam point-by-point | Archive, not a fork: upstream commit hashes aren't recorded, so we record our own commit + sha256. Layout verified 2026-11-13: `atp/`, `wta/`, `slam_pointbypoint/`. Matches end at tourney_date 2026-05-25, rankings at 2026-06-08, slam point data 2011-2024. |
-| `JeffSackmann/tennis_MatchChartingProject` | Heavy layer: point/shot data | Still upstream but could vanish: keep our own pinned copy. |
+| `JeffSackmann/tennis_MatchChartingProject` | Style layer (optional): point/shot data | Still upstream but could vanish: keep our own pinned copy. |
 | AcesAPI (`acesapi`, free plan: 500 credits/month) | Results after the mirror's cutoff: tour-level singles + qualifying + WTA 125, daily | `scripts/fetch_acesapi.py --pin` (key `ACESAPI_KEY` in `.env`), then `build_db.py`. One immutable pull folder per fetch; the build loads the latest pull per tournament; `match_seen` keeps first-seen times. No serve stats, no Challenger/ITF. Terms: storage and research use allowed, no redistribution. See DESIGN.md "AcesAPI". First pull 2026-11-14 (109 draws, 221 credits). |
 | Scraped daily feed (shelved) | Stats / Challenger coverage | `scripts/ingest_daily.py` is a skeleton (Apify). Only if Challenger coverage or serve stats become worth it. |
 | tennis-data.co.uk, odds APIs | Benchmark (closing odds) | Later. Odds are never a training feature unless capture times are verified. |
@@ -71,13 +81,19 @@ All Sackmann-derived data is **CC BY-NC-SA 4.0**: attribution required, non-comm
 3. **Load Sackmann backbone:** players, tournaments/editions, matches, `match_player_stats`, rankings. Check counts against the CSVs via `load_run`.
 4. **MCP resolution:** players, editions, matches through the cascade, then `point`. Report coverage and review-queue size. Spot-check actual merges by hand.
 5. **Baseline:** surface-aware Elo/Glicko from `v_player_match`, walk-forward log loss. Done: surface Elo (`elo_v1`, run 132, tour test log loss 0.6076) and surface Glicko-2 (`glicko2_v1`, run 187, 0.6051, better calibrated). **Baseline to beat = run 187.** Sweeps: `scripts/sweep.py --model ...`; standings: `scripts/ratings.py`. See DESIGN.md.
-6. **Style features + PCA** (fit per fold), then the interaction model on top of the baseline. Heavy layer done (`style_pca_v1`, `scripts/style_fit.py`; see DESIGN.md "Heavy layer"): serve/return/rally vectors per tour, quarterly refits, in models.db. Interaction (middle) layer to follow.
-7. **Glicko-style light layer** on residuals vs the heavy layer. Compare against the baseline.
-8. **Odds benchmark**, and the daily feed once the backbone is stable.
+6. **Style experiments (done, negative/small; see "Findings"):** PCA style vectors (`style_pca_v1`, `scripts/style_fit.py`), matchup layer (`src/tennis/matchup/`, `scripts/matchup.py`), composite predict/eval/check (`scripts/composite.py`). Kept as tooling: `composite.py eval` is the standard way to compare any model against the baselines on identical matches.
+7. **Odds benchmark:** closing odds (tennis-data.co.uk; check terms, ask before downloading) joined to the backbone; log loss of the de-vigged market on the same 2022-26 tour-level matches. Tells us whether < 0.60 is reachable.
+8. **Points-based ratings (main model):** serve/return ratings updated on points won, win/loss fallback, Markov roll-up to match probability, calibration. Same walk-forward blocks as runs 132/187; sweep like `scripts/sweep.py`. Must beat run 203 (calibrated Glicko-2, 0.6045). An agent reported < 0.60 mid-build (unverified as of 2026-11-14): before trusting it, confirm it is scored with `composite.py eval` on the same matches, calibration is fitted on past data only, and no same-match stats leak into the prediction.
+   - **Fallback tiers:** points won (mirror, to 2026-05-25) > score (games, holds/breaks; AcesAPI stores `score`) > result only.
+   - **Stats blackout test (do once 8 is done):** rerun walk-forward with per-match stats hidden after a past date (e.g. 2023-01-01), so only score/result updates apply from then on; plot log loss by month since blackout vs the full-stats run. Decides how urgently a post-2026-05 stats source is needed.
+9. **Context features:** best-of-5 (if the Markov roll-up doesn't already cover it), rest days and workload, home country, level, layoffs; a small calibrated model on top of milestone 8.
+10. **Phase style correction (optional):** surface-controlled phase test first, then the shrunk A x B correction on top of 8 + 9. Keep only if walk-forward log loss improves.
+11. **Live predictions:** daily feed (AcesAPI) into the ratings; `composite.py predict` rebuilt on the new model.
 
 ## Open questions
 - How does the MCP match identifier encode date/tournament/round/names, and how often does it disagree with the mirror?
-- Which feature set and how many PCA components survive validation? Which charted-match threshold triggers the fallback?
-- Should the Glicko-style layer run per surface, per component (serve vs return), or both?
-- How to treat retirements in the light-layer update and in point-level stats.
+- Ratings per surface, per component (serve vs return), or both? How to blend points-based and win/loss updates?
+- How to treat retirements in rating updates and in point-level stats.
+- What closing-odds log loss do we face on 2022-26 tour-level matches?
+- Phase profiles: how much of their stability is surface mix?
 - Women's-tour name variants (marriage, transliteration) need their own alias pass.

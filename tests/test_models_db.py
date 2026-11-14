@@ -44,7 +44,7 @@ class ModelsDbTest(unittest.TestCase):
             con.commit()
         with closing(models_db.connect(path)) as con:     # re-applying the schema keeps data
             self.assertEqual(con.execute("SELECT COUNT(*) FROM model_run").fetchone()[0], 1)
-            self.assertEqual(con.execute("SELECT value FROM models_meta").fetchall(), [("2",)])
+            self.assertEqual(con.execute("SELECT value FROM models_meta").fetchall(), [("3",)])
 
     def test_attached_data_is_read_only(self):
         with closing(self.models("ro.db")) as con:

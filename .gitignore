@@ -9,3 +9,7 @@ data/review_open.csv
 models.db
 models.db-*
 models/
+
+# Secrets
+.env
+.env.*

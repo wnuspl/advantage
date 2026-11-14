@@ -1,2 +1,6 @@
 numpy==2.5.4
 scikit-learn==1.9.1
+# matchup layer (src/tennis/matchup). torch: CPU build, install with
+#   pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+torch==2.15.0
+lightgbm==4.7.0

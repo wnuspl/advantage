@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import sqlite3
 from array import array
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 
 # Tour-level main draws (verified against the level codes in tennis.db, 2026-11-13).
 # AcesAPI events with no Sackmann history get level 'X' (tier unknown). They are rated but
@@ -63,6 +63,8 @@ class Matches:
     tour_level: bytearray  # 1 if tour-level main draw (the 'tour' scoring scope)
     tour: list             # 'atp' / 'wta'
     surface: list          # 'hard' / 'clay' / 'grass' / 'carpet' / None
+    extra: dict = field(default_factory=dict)   # model-specific per-match arrays, aligned
+                                                # (e.g. points_rating.attach); prefixes stay valid
 
     def __len__(self) -> int:
         return len(self.match_id)
@@ -116,7 +118,7 @@ def until(m: Matches, as_of: str) -> Matches:
     from bisect import bisect_left
     cut = bisect_left(m.start, as_of)
     return Matches(m.match_id[:cut], m.winner[:cut], m.loser[:cut], m.start[:cut],
-                   m.status[:cut], m.tour_level[:cut], m.tour[:cut], m.surface[:cut])
+                   m.status[:cut], m.tour_level[:cut], m.tour[:cut], m.surface[:cut], m.extra)
 
 
 def _expected(diff: float) -> float:
