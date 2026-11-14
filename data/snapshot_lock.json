@@ -113,6 +113,22 @@
   },
   "source_ref": "20261114T183408Z"
  },
+ "acesapi-20261114T195814Z": {
+  "files": {
+   "draws/atp/13-2026.json": "ae638e77d91a2da0bca0537b3840ff665c086765470c6c586949ad9bed95dfc7",
+   "draws/atp/148-2026.json": "500f2c311e2a3db11bb8a756cef5e50df1e6b6405667b8bd10f70639f6710610",
+   "draws/wta/1002-2026.json": "265cf6b49afcb42aa9b02d5d7b8b4ad90b9241ec08b9557585d076b4392084f4",
+   "draws/wta/1007-2026.json": "005c5e309ada76301a1e8d3fcc73b890547217dc7f2dc3728912145c2316cee0",
+   "draws/wta/1018-2026.json": "d02dfe8ef0269c7ee6d3ff71361e9c95a95af3e01438afc53ebad22fda3a3915",
+   "draws/wta/1081-2026.json": "8bceccd4cf72c951b603019c720a2f799f1d02a6930ba8ea4adc5a54f34a88bb",
+   "draws/wta/1082-2026.json": "ef69a828714bb7abf8196ff59f5020b89709d2d560c36d3ad86a715f60064345",
+   "draws/wta/1084-2026.json": "0becb74c75218ede24e7d8eab7a21cc14494006ad29a54cdc184216883325e68",
+   "draws/wta/380-2026.json": "379dc286429cf2c5b449131a5d78d043050586c1688281926867dfbd945aa0f5",
+   "draws/wta/382-2026.json": "fc601e6e96a9fe1f735b5ed6ad71128334682c80da3eaf0a686068f44f2d22ca",
+   "draws/wta/889-2026.json": "89fb0bf70aeb3ba8c5add01efec0c9d749d6ea433ac787dbf5915ecd7f33f785"
+  },
+  "source_ref": "20261114T195814Z"
+ },
  "tennis-sackmann-archive-83733587353df8a41f2fd4f516147d5aa83f5a8d": {
   "files": {
    "atp/atp_matches_1968.csv": "5c2b13de739adc7f8d5c17df583fc90f81584da97897d6da189ca73820cca3aa",

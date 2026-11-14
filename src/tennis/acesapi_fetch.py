@@ -103,8 +103,9 @@ def wanted(t: dict, prev: Seen | None, since: date, today: date, refetch_days: i
     """Why tournament `t` (a list_tournaments item) needs a draw call now, or None.
 
     Fetch a tournament that has started and overlaps [since, today] unless an earlier pull
-    already saw it final more than `refetch_days` after it ended (AcesAPI rewrites the
-    current season daily, so late corrections land in that window).
+    was made more than `refetch_days` after it ended (AcesAPI rewrites the current season
+    daily, so late corrections land in that window). The status is not trusted for this:
+    some events stay "live" long after their last match.
     """
     status = str(t.get("status") or "").lower()
     start, end = iso_day(t.get("start_date")), iso_day(t.get("end_date"))
@@ -114,12 +115,12 @@ def wanted(t: dict, prev: Seen | None, since: date, today: date, refetch_days: i
         return None
     if prev is None:
         return "new"
-    if prev.status.lower() != "final":
-        return "was_live"
+    # Settled once an earlier pull was made more than refetch_days after the end, whatever
+    # the status says: AcesAPI leaves some events "live" for months after their last match.
     end_d = date.fromisoformat(prev.end_date or end or start)
-    if pull_day(prev.pull_id) <= end_d + timedelta(days=refetch_days):
-        return "correction_window"
-    return None
+    if pull_day(prev.pull_id) > end_d + timedelta(days=refetch_days):
+        return None
+    return "correction_window" if prev.status.lower() == "final" else "was_live"
 
 
 def list_items(raw: bytes) -> tuple[list[dict], int | None]:

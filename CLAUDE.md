@@ -53,7 +53,7 @@ All Sackmann-derived data is **CC BY-NC-SA 4.0**: attribution required, non-comm
 - Resolve in order: players and tournaments, then editions, then matches. Match join key: unordered player pair + edition + date window (±2 days), round as tiebreaker.
 - Fuzzy matching only inside blocks. Low confidence goes to `review_queue`, never auto-merged. Hand-confirmed links and forced non-matches live in a version-controlled `data/overrides.csv`, applied last, always winning.
 - **Snapshots (implemented: `src/tennis/snapshots.py`, `loadrun.py`, `build.py`; see DESIGN.md "Build protocol"):**
-  - `ingest_snapshot`: one row per raw *file* (source, source_ref, file_relpath, sha256, raw_path, row_count), unique on `(source, file_relpath, sha256)`.
+  - `ingest_snapshot`: one row per raw *file* (source, source_ref, file_relpath, sha256, raw_path, row_count), unique on `(source, source_ref, file_relpath)`: the same bytes in two snapshots (an unchanged AcesAPI re-fetch) are two rows.
   - `data/build_manifest.json` pins which downloaded folder each source uses. A build never silently picks "the newest."
   - Registering a file is separate from loading it. A `load_run` table records rows read / inserted / skipped / queued per loader per file. A view (`v_inv_load_counts`) must return zero rows: every source row is accounted for.
   - If a registered file's bytes change under the same commit, the build stops (hashes kept in tracked `data/snapshot_lock.json`). Raw files are immutable.

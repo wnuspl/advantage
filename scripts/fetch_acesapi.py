@@ -9,8 +9,8 @@
 What a pull fetches (src/tennis/acesapi_fetch.py):
   1. list_tournaments per tour and season from --since (1 credit per page).
   2. get_tournament draw=all (2 credits) for each tournament that has started and overlaps
-     [--since, today], unless an earlier pull already saw it final more than --refetch-days
-     after it ended. AcesAPI rewrites the current season daily (10:00 UTC), so tournaments
+     [--since, today], unless an earlier pull was made more than --refetch-days after it
+     ended (whatever status AcesAPI still shows). AcesAPI rewrites the current season daily (10:00 UTC), so tournaments
      inside that window are pulled again to pick up corrections.
   Stops before --max-credits would be exceeded. The folder is written under a temp name
   and renamed when done, so a crash leaves no half-written snapshot. Each pull is logged

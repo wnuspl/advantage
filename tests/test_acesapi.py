@@ -87,6 +87,10 @@ class PlanningTest(unittest.TestCase):
         self.assertEqual(af.wanted(self.T, fresh, since, today, 10), "correction_window")
         settled = af.Seen("20260920T000000Z", "final", "2026-09-02")
         self.assertIsNone(af.wanted(self.T, settled, since, today, 10))
+        # AcesAPI leaves some events "live" for months: past the window it is settled anyway.
+        stale_live = af.Seen("20261114T183408Z", "live", "2026-07-27")
+        self.assertIsNone(af.wanted({**self.T, "status": "live", "end_date": "2026-07-27"},
+                                    stale_live, since, today, 10))
 
     def test_previous_pulls_takes_latest(self):
         prev = af.previous_pulls(FIXTURES / "raw")
@@ -265,6 +269,38 @@ class AcesBuildTest(unittest.TestCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM v_inv_same_day_conflicts").fetchone()[0], 2)
         finally:
             con.rollback()
+
+    def test_identical_refetch_is_its_own_snapshot(self):
+        """A third pull re-fetches the US Open with byte-identical content (the common case)."""
+        tmp = Path(tempfile.mkdtemp(prefix="tennis-aces3-"))
+        try:
+            raw = tmp / "raw"
+            shutil.copytree(self.tmp / "raw", raw)
+            src = raw / "acesapi-20261114T120000Z"
+            dst = raw / "acesapi-20261115T080000Z"
+            (dst / "draws" / "atp").mkdir(parents=True)
+            shutil.copy(src / "draws" / "atp" / "560-2026.json", dst / "draws" / "atp" / "560-2026.json")
+            shutil.copy(src / "pull.json", dst / "pull.json")
+            man = json.loads(MANIFEST.read_text(encoding="utf-8"))
+            man["snapshots"].append(af.manifest_entry("20261115T080000Z", dst))
+            mpath = tmp / "manifest.json"
+            mpath.write_text(json.dumps(man), encoding="utf-8")
+            report = run_build(project_root=tmp, manifest_path=mpath, raw_root=raw, db_path=tmp / "t.db",
+                               lock_path=tmp / "lock.json", overrides_path=tmp / "overrides.csv",
+                               report_path=None, quiet=True)
+            self.assertTrue(all(v == "ok" for v in report["invariants"].values()), report["invariants"])
+            with sqlite3.connect(tmp / "t.db") as c2:
+                runs = dict(c2.execute(
+                    """SELECT s.source_ref, r.rows_skipped FROM ingest_snapshot s JOIN load_run r USING (snapshot_id)
+                       WHERE s.file_relpath='draws/atp/560-2026.json'"""))
+                self.assertEqual(runs, {"20261110T120000Z": 3, "20261114T120000Z": 8, "20261115T080000Z": 1})
+                self.assertEqual(c2.execute("""SELECT COUNT(DISTINCT sha256) FROM ingest_snapshot
+                                               WHERE source_ref IN ('20261114T120000Z','20261115T080000Z')""").fetchone()[0], 1)
+                self.assertEqual(c2.execute("""SELECT first_seen_at, last_seen_at, n_pulls FROM match_seen
+                                               WHERE source_key='atp:2002'""").fetchone(),
+                                 ("2026-11-10T12:00:00Z", "2026-11-15T08:00:00Z", 3))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_rebuild_is_deterministic(self):
         tmp = Path(tempfile.mkdtemp(prefix="tennis-aces2-"))

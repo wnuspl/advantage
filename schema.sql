@@ -48,7 +48,9 @@ CREATE TABLE ingest_snapshot (
   loader        TEXT NOT NULL,
   fetched_at    TEXT,
   registered_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
-  UNIQUE (source, file_relpath, sha256)
+  -- One row per file per snapshot. Identical bytes in two snapshots are two rows: an API
+  -- pull that re-fetches an unchanged tournament still records that it was seen again.
+  UNIQUE (source, source_ref, file_relpath)
 ) STRICT;
 
 -- Loading is separate from registering. One row per loader per file.
