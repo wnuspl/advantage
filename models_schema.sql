@@ -79,3 +79,66 @@ CREATE TABLE IF NOT EXISTS pre_match_rating (
   n_matches      INTEGER,           -- rated matches before this one
   PRIMARY KEY (run_id, match_key, player_key)
 ) STRICT;
+
+------------------------------------------------------------------------
+-- Heavy layer: PCA style vectors (schema version 2). Code: src/tennis/heavy.py.
+-- One fit per (tour, side, fit_date); it sees only charted matches whose edition started
+-- strictly before fit_date. Between refits, vectors come from the latest prior fit.
+------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS style_fit (
+  fit_id          TEXT PRIMARY KEY,   -- '<model_id>:<config hash>:<tour>:<side>:<fit_date>'
+  model_id        TEXT NOT NULL,      -- e.g. 'style_pca_v1'
+  config_hash     TEXT NOT NULL,      -- sha of config_json; groups fits of one configuration
+  tour            TEXT NOT NULL CHECK (tour IN ('atp','wta')),
+  side            TEXT NOT NULL CHECK (side IN ('serve','return','rally')),
+  fit_date        TEXT NOT NULL,      -- uses charted matches with edition start < fit_date
+  data_from       TEXT,               -- earliest / latest edition start actually used
+  data_to         TEXT,
+  n_players       INTEGER NOT NULL,   -- players in the fit population
+  n_components    INTEGER NOT NULL,
+  explained_json  TEXT NOT NULL,      -- explained-variance ratio of every kept component
+  config_json     TEXT NOT NULL,      -- canonical JSON of the HeavyConfig
+  feature_version TEXT NOT NULL,
+  pipeline_path   TEXT,               -- joblib file, relative to the repo root
+  data_built_at   TEXT,
+  code_commit     TEXT,
+  created_at      TEXT NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_style_fit_lookup ON style_fit (config_hash, tour, side, fit_date);
+
+-- Per fit and feature: the shrinkage prior and the scaler, so a vector can be rebuilt
+-- without the joblib file.
+CREATE TABLE IF NOT EXISTS style_fit_feature (
+  fit_id       TEXT NOT NULL REFERENCES style_fit(fit_id) ON DELETE CASCADE,
+  feature      TEXT NOT NULL,
+  position     INTEGER NOT NULL,
+  tour_mean    REAL NOT NULL,
+  prior_k      REAL NOT NULL,
+  scaler_mean  REAL NOT NULL,
+  scaler_scale REAL NOT NULL,
+  PRIMARY KEY (fit_id, feature)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS style_loading (
+  fit_id    TEXT NOT NULL REFERENCES style_fit(fit_id) ON DELETE CASCADE,
+  feature   TEXT NOT NULL,
+  component INTEGER NOT NULL,         -- 1-based
+  loading   REAL NOT NULL,            -- after the sign convention (largest |loading| > 0)
+  PRIMARY KEY (fit_id, feature, component)
+) STRICT;
+
+-- Materialized vectors (a cache: heavy.get_style can compute any date on demand).
+-- player_id is the stable player key. as_of_date: uses only editions starting before it.
+CREATE TABLE IF NOT EXISTS style_vectors (
+  player_id   TEXT NOT NULL,
+  as_of_date  TEXT NOT NULL,
+  side        TEXT NOT NULL CHECK (side IN ('serve','return','rally')),
+  fit_id      TEXT NOT NULL REFERENCES style_fit(fit_id) ON DELETE CASCADE,
+  n_matches   INTEGER NOT NULL,
+  n_points    INTEGER NOT NULL,
+  c1 REAL, c2 REAL, c3 REAL, c4 REAL, c5 REAL, c6 REAL, c7 REAL, c8 REAL, c9 REAL, c10 REAL,
+  PRIMARY KEY (player_id, as_of_date, side)
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_style_vectors_fit ON style_vectors (fit_id);
+
+UPDATE models_meta SET value = '2' WHERE key = 'models_schema_version' AND CAST(value AS INTEGER) < 2;
