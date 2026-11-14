@@ -96,6 +96,25 @@ class EloResult:
     s_loser: array
     n_winner: array        # pre-match overall rated-match counts
     n_loser: array
+    state: "EloState | None" = None   # ratings AFTER the last processed match
+
+
+@dataclass
+class EloState:
+    rating: dict           # player_id -> overall rating
+    count: dict            # player_id -> rated matches
+    srating: dict          # (player_id, surface) -> surface rating
+    scount: dict           # (player_id, surface) -> rated matches on that surface
+
+
+def until(m: Matches, as_of: str) -> Matches:
+    """The prefix of `m` whose edition started strictly before `as_of` (ISO date).
+    Sackmann dates matches only by their event's start, so an event already under way on
+    `as_of` counts in full."""
+    from bisect import bisect_left
+    cut = bisect_left(m.start, as_of)
+    return Matches(m.match_id[:cut], m.winner[:cut], m.loser[:cut], m.start[:cut],
+                   m.status[:cut], m.tour_level[:cut], m.tour[:cut], m.surface[:cut])
 
 
 def _expected(diff: float) -> float:
@@ -157,5 +176,6 @@ def run(m: Matches, p: EloParams) -> EloResult:
             srating[kw] = sw + weight * k / (snw + off) ** shape * sdelta
             srating[kl] = sl - weight * k / (snl + off) ** shape * sdelta
             scount[kw], scount[kl] = snw + 1, snl + 1
+    out.state = EloState(rating, count, srating, scount)
     return out
 

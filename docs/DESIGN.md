@@ -117,6 +117,7 @@ Code: `src/tennis/elo.py` (engine), `src/tennis/evaluate.py` (scoring), `src/ten
   | test 2022-26 | tour_wta | 0.6058 | 0.6032 | 0.0026 |
 
   Test accuracy 66.2% (tour), Brier 0.2106. **Run 132 is the current baseline** the heavy and light layers must beat; calibration unchanged (~3 points overconfident).
+- **Standings:** `scripts/elo_ratings.py [--as-of DATE] [--run ID] [--tour] [--surface]` replays a run's parameters over editions starting strictly before the date and lists ratings after each player's last match, highest first (per tour; by default 10+ rated matches and active in the prior year).
 - **Recording:** each setting is a `model_run` row in `models.db` (params, sweep id, data build, git commit) with `run_metric` rows per block x scope. `finalize --save-predictions` writes per-match `prediction` and `pre_match_rating` rows for that run.
 
 ## Point-in-time rules (leakage)
