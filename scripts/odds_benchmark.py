@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from tennis import models_db, odds                       # noqa: E402
 from tennis.composite_eval import metrics                # noqa: E402
 
-LABELS = {132: "elo_surface", 187: "glicko2_raw", 203: "glicko2_cal", 207: "siamese"}
+LABELS = {132: "elo_surface", 187: "glicko2_raw", 203: "glicko2_cal", 207: "siamese", 602: "points_v1_602"}
 
 
 def main() -> None:
