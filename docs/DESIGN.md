@@ -169,6 +169,27 @@ Code: `src/tennis/glicko2.py`; registered with Elo in `src/tennis/ratingmodels.p
 
   Brier 0.2097 vs 0.2106; accuracy unchanged (66.1% vs 66.2%). Calibration improves: folded bins at predicted 0.65 won 0.624 (Elo 0.617), at 0.85 won 0.831 (Elo 0.814), roughly halving Elo's overconfidence. **Run 187 is now the best baseline.** Without surfaces Glicko also beats plain Elo (val 0.6086 vs 0.6103).
 
+## Points-based ratings (`points_v1`, milestone 8)
+
+Code: `src/tennis/markov.py` (point -> game -> set -> match), `src/tennis/points_rating.py` (model, data attach), `src/tennis/calibrate.py` + `scripts/compare_runs.py` (calibrated paired comparison). Registered in `ratingmodels.py`, so `scripts/sweep.py` sweeps/finalizes it. Tests: `tests/test_points.py`.
+
+- **Model.** Per player a serve rating s and return rating r (logit of a serve point), each with a variance; per (player, surface) serve/return deviations with prior variance `surf_var` (hierarchical, prior mean 0); per (tour, surface) a base logit learned online (`base_lr`). x_A = b + s_A + ds_A - r_B - dr_B is A's serve-point logit. Variances grow by `q` per day off (capped at `v_init`), surface variances by `q_surf` per day off that surface (capped at `surf_var`).
+- **Updates.** With serve stats (both players' serve points and points won in `match_player_stats`): Kalman update of the four terms of each server's x on z = (k/n - p)/(p(1-p)), observation variance 1/(n p(1-p)) + `obs_var`; then an extended-Kalman update on the result with weight `result_weight`. Without stats: the same result update with weight `nostat_weight`. Retirements x `retired_weight`; walkovers/unfinished never update. Stats exist for 360k of 1.76M matches (ATP tour-level from 1991, WTA tour-level ~2010+, Challengers ~2010+, ITF 2025+).
+- **Roll-up.** Exact Markov chain (independent points); verified by Monte Carlo and by serve-order invariance of games, tiebreaks and sets. Tabulated per format on a logit grid (step 0.01, bilinear, error < 1e-4) for speed. Best-of from `matches.best_of`; the deciding-set rule per edition is inferred from its own scores (`tb` 6-6 tiebreak, `adv`, `tb12`, `mtb` = match tiebreak instead of the deciding set: ~2,500 ITF/WTA 15k-100k editions), else the tournament's previous rule, else `tb`. A 10-point tiebreak at 6-6 is indistinguishable from scores and modelled as `tb`.
+- **Prediction-only parameters:** `blend` (weight on the surface deviations) and `unc` (shrink logit P by 1/sqrt(1 + unc * 3 var(logit P)/pi^2), var from the Markov gradient and the rating variances).
+- **Sweeps (2026-11-14, ~330 settings: `points-v1`, `-oat`, `-fine`, `-final-a/b/c`; 45 s per pass).** Best on validation, run 605: v_init 0.02, q 1.5e-5, obs_var 0.003, surf_var 0.003, q_surf 2e-6, result_weight 0.3, nostat_weight 1, base_lr 0.0005, blend 0.7, unc 5. Every parameter has worse neighbours on both sides. What mattered: surface deviations at partial weight (val 0.6074 without, 0.5985 at 0.5), small surface prior variance, a little surface drift, result_weight 0.3 (~0.001), and a strong uncertainty shrink (unc 4-6; the Kalman variances ignore cross-player correlation, so they are too small). Flat (< 0.0003): obs_var 0.001-0.01, v_init 0.01-0.04, nostat_weight 1-2, base_lr 1e-4-2e-3, init_offset.
+- **Results** (`compare_runs.py`, identical tour-level matches; calibrated = per quarter and tour, alpha on the logit fitted on the previous 10 years; reproduces run 203 exactly):
+
+  | Block | Scope | Glicko-2 cal (203) | points_v1 raw (605) | points_v1 cal | delta (cal vs cal) | blocks won |
+  |---|---|---|---|---|---|---|
+  | val 2019-21 | tour | 0.6028 | 0.5945 | 0.5946 | -0.0081 ± 0.0014 | 10/11 |
+  | test 2022-26 | tour | 0.6045 | 0.5971 | **0.5968** | **-0.0077 ± 0.0010** | 17/18 |
+  | test 2022-26 | tour_atp | 0.6075 | 0.5982 | 0.5978 | -0.0097 ± 0.0014 | 17/18 |
+  | test 2022-26 | tour_wta | 0.6013 | 0.5959 | 0.5957 | -0.0056 ± 0.0013 | 12/18 |
+
+  Test Brier 0.2062 vs 0.2095, ECE 0.018 vs 0.025, accuracy 67.1% vs 66.1%. **Run 605 is the new baseline and meets the < 0.60 target on tour-level test.** The matchup Siamese (207) is -0.0003 on the same rows. Caveat: on **all levels** (test, raw) points_v1 is worse than Glicko-2, 0.5752 vs 0.5734: most lower-level matches have no stats, and the parameters were tuned on tour-level only.
+- **Open.** Lower levels (all-levels scope worse than Glicko); standings (`scripts/ratings.py`) not adapted to serve/return output; uncertainty shrink is a patch for underestimated variances (joint covariance, or a fitted variance scale, may do better); retirement handling of partial stats; whether Glicko's logit adds anything on top (milestone 9's context model).
+
 ## Heavy layer: style vectors (`style_pca_v1`)
 
 Spec: `HEAVY_LAYER_SPEC.md`. Code: `src/tennis/mcp_notation.py` (parser), `src/tennis/style_features.py` (counts, point-in-time totals, shrinkage), `src/tennis/heavy.py` (fits, storage, `get_style_vector`), `scripts/style_fit.py` (`fit`, `report`, `show`). Dependencies: numpy + scikit-learn (`requirements.txt`).
