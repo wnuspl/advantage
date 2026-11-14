@@ -120,6 +120,23 @@ Code: `src/tennis/elo.py` (engine), `src/tennis/evaluate.py` (scoring), `src/ten
 - **Standings:** `scripts/elo_ratings.py [--as-of DATE] [--run ID] [--tour] [--surface]` replays a run's parameters over editions starting strictly before the date and lists ratings after each player's last match, highest first (per tour; by default 10+ rated matches and active in the prior year).
 - **Recording:** each setting is a `model_run` row in `models.db` (params, sweep id, data build, git commit) with `run_metric` rows per block x scope. `finalize --save-predictions` writes per-match `prediction` and `pre_match_rating` rows for that run.
 
+## Glicko-2 (`glicko2_v1`)
+
+Code: `src/tennis/glicko2.py`; registered with Elo in `src/tennis/ratingmodels.py`, so `scripts/sweep.py` (sweep/show/finalize) and `scripts/ratings.py` (standings) work for both, reading each run's model from `model_run.model_id`. `elo_sweep.py` / `elo_ratings.py` remain as Elo-default wrappers.
+
+- **Model:** overall + per-surface states (rating, RD, volatility), same structure, retirement/walkover rules and prediction-only `blend` as Elo. Each match is its own rating period; RD grows with time since the player's last rated match (`period_days`, capped at `rd_max`), and surface RD with time since their last match on that surface. Predictions use both players' RD: P = 1/(1+exp(-g(sqrt(phi_a^2+phi_b^2))(mu_a-mu_b))). Volatility update is the Illinois algorithm (checked against Glickman's worked example); `tau = 0` keeps it fixed.
+- **Sweeps (`glicko-v1`, then `glicko-edge`, 2026-11-14):** tau had no measurable effect (0 and 0.5 identical: with one match per period volatility barely moves), so tau = 0 (about 40% faster) is used. Shorter periods help up to an interior optimum at 4 days (2 and 7 both worse); starting RD 150-250 is flat. Best on validation: tau=0, rd_init=200, period_days=4, blend=0.3 (run 187).
+
+  | Block | Scope | Surface Elo (132) | Glicko-2 (187) | Gain |
+  |---|---|---|---|---|
+  | val 2019-21 | tour | 0.6040 | 0.6027 | 0.0013 |
+  | test 2022-26 | tour | 0.6076 | **0.6051** | 0.0024 |
+  | test 2022-26 | tour_atp | 0.6116 | 0.6086 | 0.0030 |
+  | test 2022-26 | tour_wta | 0.6032 | 0.6014 | 0.0018 |
+  | test 2022-26 | all levels | 0.5751 | 0.5734 | 0.0017 |
+
+  Brier 0.2097 vs 0.2106; accuracy unchanged (66.1% vs 66.2%). Calibration improves: folded bins at predicted 0.65 won 0.624 (Elo 0.617), at 0.85 won 0.831 (Elo 0.814), roughly halving Elo's overconfidence. **Run 187 is now the best baseline.** Without surfaces Glicko also beats plain Elo (val 0.6086 vs 0.6103).
+
 ## Point-in-time rules (leakage)
 
 - Features and ratings for a match may use only matches that happened strictly before it. Order by `(edition start_date, round_order)` when `match_date` is NULL.
