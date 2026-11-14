@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 import sys
 import unittest
 from contextlib import closing
@@ -133,14 +134,15 @@ class SweepEndToEndTest(unittest.TestCase):
                 self.assertEqual(len(prep.m), 7)
                 val = ("2020-01-01", "2020-01-19")             # Brisbane + ITF weeks
                 passes = []
-                real_run = tuning.elo.run
-                tuning.elo.run = lambda m, p: passes.append(p) or real_run(m, p)
+                real = tuning.ratingmodels.MODELS["elo_v1"]
+                tuning.ratingmodels.MODELS["elo_v1"] = replace(
+                    real, run=lambda m, p: passes.append(p) or real.run(m, p))
                 try:
                     out = tuning.sweep(con, prep, tuning.expand_grid(
                         {"k": [32, 64], "shape": [0.0], "blend": [0.0, 0.5]}),
                         sweep_id="t", val=val, progress=lambda *_: None)
                 finally:
-                    tuning.elo.run = real_run
+                    tuning.ratingmodels.MODELS["elo_v1"] = real
                 self.assertEqual(len(out), 4)
                 self.assertEqual(len(passes), 2)                  # blend reuses the same pass
                 board = tuning.leaderboard(con, sweep_id="t", scope="all")
