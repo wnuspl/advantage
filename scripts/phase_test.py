@@ -105,17 +105,18 @@ def _edges(stats, pop, variant):
     return np.array([pr["e"][s, k] for s, k in EDGE_ROWS]), pr["N"]
 
 
-def _redraw(stats, rng):
-    """Null: wins within each (side, surface) redrawn so phases carry no edge."""
+def _redraw(stats, pop, rng):
+    """Null: no phase edge. Phase wins redrawn ~ Binomial(n_ks, R_ks + d), i.e. the
+    (tour, surface) population's phase pattern shifted by the player's own level d.
+    Phase counts (steering) are kept."""
     st = stats.copy()
+    P, R, _ = phase._rates(pop)
+    P, R = np.nan_to_num(P), np.nan_to_num(R)
     N, W = st[..., 0], st[..., 1]
-    for k in range(phase.NK):
-        n = st[..., 2 + k]
-        ok = N > 0
-        draw = np.zeros_like(n)
-        draw[ok] = rng.hypergeometric(W[ok].astype(np.int64), (N[ok] - W[ok]).astype(np.int64),
-                                      n[ok].astype(np.int64))
-        st[..., 2 + phase.NK + k] = draw
+    d = (W - N * P).sum(axis=1) / np.maximum(N.sum(axis=1), 1)          # (2,)
+    p = np.clip(R + d[:, None, None], 0.01, 0.99)
+    n = st[..., 2:2 + phase.NK].astype(np.int64)
+    st[..., 2 + phase.NK:] = rng.binomial(n, p)
     return st
 
 
@@ -139,8 +140,8 @@ def step1(t: phase.Tallies, reps: int = 40) -> dict:
             r = [float(np.corrcoef(ea[:, j], eb[:, j])[0, 1]) for j in range(len(EDGE_NAMES))]
             null = []
             for _ in range(reps):
-                xa = np.array([_edges(_redraw(sa[k], rng), pa[k[1]], variant)[0] for k in keep])
-                xb = np.array([_edges(_redraw(sb[k], rng), pb[k[1]], variant)[0] for k in keep])
+                xa = np.array([_edges(_redraw(sa[k], pa[k[1]], rng), pa[k[1]], variant)[0] for k in keep])
+                xb = np.array([_edges(_redraw(sb[k], pb[k[1]], rng), pb[k[1]], variant)[0] for k in keep])
                 null.append([np.corrcoef(xa[:, j], xb[:, j])[0, 1] for j in range(len(EDGE_NAMES))])
             null = np.array(null)
             res[variant] = {"n_players": len(keep), "r": dict(zip(EDGE_NAMES, r)),
@@ -360,6 +361,7 @@ def main():
     ap.add_argument("--points-run", type=int, default=273)
     ap.add_argument("--glicko-run", type=int, default=187)
     ap.add_argument("--reps", type=int, default=40)
+    ap.add_argument("--step1-only", action="store_true", help="rerun step 1 and update it in --out")
     ap.add_argument("--out", default=str(ROOT / "results" / "phase_test.json"))
     a = ap.parse_args()
     variants = list(phase.VARIANTS)
@@ -372,6 +374,12 @@ def main():
     hist = phase.History(t)
 
     s1 = step1(t, a.reps)
+    if a.step1_only:
+        prev = json.loads(Path(a.out).read_text(encoding="utf-8")) if Path(a.out).exists() else {}
+        prev["step1"] = s1
+        Path(a.out).write_text(json.dumps(prev, indent=1), encoding="utf-8")
+        log(f"updated step 1 in {a.out}")
+        return
 
     gspec, gpar = run_params(con, a.glicko_run)
     log(f"running {gspec.model_id} (run {a.glicko_run}) ...")

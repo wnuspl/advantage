@@ -213,6 +213,47 @@ Code: `src/tennis/composite.py` (predictor), `src/tennis/composite_eval.py` (sco
 - **`check`** rebuilds stored walk-forward predictions through this chain for each player's first match of chosen edition starts (later rounds of an event under way are not in a before-date state). On matchup-v1-full: 1,095 matches, max difference 7e-9 (siamese), 2e-16 (lgbm), light layer 2e-16 vs run 187.
 - **`eval`** inner-joins stored predictions of the baselines (Elo 132, Glicko-2 187) and every model of one matchup sweep, so all models are scored on identical matches. Metrics: log loss, Brier, accuracy, ECE, recalibration (a, b), paired log-loss difference vs a reference with SE, quarterly blocks won. "Better" = lower log loss with z < -2 and ECE no more than 0.002 worse.
 
+## Phase style correction (milestone 10, `phase_test.py`): negative
+
+Code: `src/tennis/phase.py` (profiles), `scripts/phase_test.py` (all three steps), results in
+`results/phase_test.json` (run 2026-11-14 on points_v1 run 273 and Glicko-2 run 187).
+
+- **Phases** per charted point (server's view): short (<= 3 strokes, double faults included),
+  medium (4-6), long (>= 7), server came to net, returner came to net. Same parser as the style
+  features.
+- **Profile** per player and side, from charted matches with edition start before the match:
+  level d (win rate vs population), edge e_k (phase win rate beyond population phase rate + own
+  level), steering t_k (phase share vs population). Shrinkage 300 / 150 / 150 points. Players need
+  >= 300 charted serve and return points, else no correction. Population rates use years before
+  the match's year.
+- **Variants:** `pooled` (population per tour; the first test), `surface` (population per tour x
+  surface, own level measured against it), `same` (only points on the match's surface).
+- **Matchup term**, A serving to B: M_A = sum_k t^ret_B,k e^srv_A,k - sum_k t^srv_A,k e^ret_B,k
+  (the cross terms of mix x win rate; all one-player terms are level, which ratings carry).
+
+Results:
+- **Surface control changes nothing.** Edge stability between periods is identical pooled vs
+  surface-adjusted (e.g. serve short 0.64/0.64, serve long 0.54/0.54, 2015-18 -> 2019-22;
+  101 and 160 players). Null bands (phase wins redrawn at population phase rate + own level)
+  sit at about -0.15..+0.22; all edges clear them except return short and return long in
+  2015-18 -> 2019-22.
+- **Residual test** (33,662 matches with stats, both players profiled, 2011+; partial correlation
+  with total point share beyond the reference): matchup part r = 0.032 (pooled), 0.031 (surface),
+  0.031 (same) beyond Glicko-2; 0.042 / 0.039 / 0.033 beyond points_v1 (t 6-8). The player part
+  (charted level) is stronger: r = 0.05 beyond Glicko-2, **0.107 beyond points_v1 (t ~ 20)**.
+- **Correction** (serve logit += beta M / (p(1-p)), beta fitted on serve points before 2019:
+  0.44-0.55, t ~ 5): tour-level log loss vs points_v1 run 273, paired on identical matches.
+  Val 2019-21 calibrated: +0.00006 / +0.00013 / +0.00007 (worse). Test 2022-26 calibrated:
+  -0.00007 / -0.00010 / 0.00000, SE 0.00011. Adding the level term: test raw +0.00026..+0.00028
+  (worse), calibrated -0.00003..-0.00012. **Not kept**: the effect on serve points is real but
+  too small to move match log loss.
+- Reference scores from the same pass: points_v1 run 273 on tour-level test 2022-26 (n = 21,362):
+  0.59843 raw, 0.59771 calibrated (run 203: 0.6045). Run 273 was chosen on validation only.
+- **Lead for the ratings layer:** the player part beyond points_v1 (t ~ 20, strongest in ATP,
+  r = 0.15) says charted players' level is not fully in the points ratings. Points_v1 may react too
+  slowly for top players, or the level in charted matches carries something the serve stats lack.
+  This is milestone 8/9 work, not style.
+
 ## Point-in-time rules (leakage)
 
 - Features and ratings for a match may use only matches that happened strictly before it. Order by `(edition start_date, round_order)` when `match_date` is NULL.
