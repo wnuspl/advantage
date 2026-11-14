@@ -203,6 +203,7 @@ Spec: `MIDDLE_LAYER_SPEC.md` ("middle layer" there; called the **matchup layer**
 - **Persistence (models.db schema v3).** One `model_run` per model (`matchup_<name>_v1`, sweep_id = run tag); `run_metric` block `wf_test` = pooled test metrics per scope, `test:<block>` = per block; `prediction` rows for every test match; `matchup_bundle` = per fold: fit_ids, alpha, train cutoff, sizes, training info and the model file (`models/matchup/<run_id>/<tour>_<block>.pt`, gitignored).
 - **Scopes.** `tour` (tour-level main draws, every match), `tour_both` (both players have vectors: where the layer can act), `tour_well` (both >= 10 charted matches), plus per tour and per surface.
 - **First results (run tag `matchup-v1-full`, runs 202-208, test 2022-01 to 2026-06, 36 folds, ~5 min).** `tour` log loss: raw Glicko 0.6051, alpha-calibrated Glicko 0.6045, bilinear 0.6049, bilinear_sr 0.6047, bilinear_rr 0.6047, Siamese 0.6042, LightGBM 0.6045. 93% of tour-level matches have both vectors. Alpha calibration is the only significant gain (t = 3 across 18 blocks). Siamese is best but within noise (t = -1.2), and bilinear is slightly worse. **No v1 interaction model beats Glicko-only by the spec §8 rule yet.** Details and ablation: `docs/matchup_report.md`.
+- **Siamese on top of points_v1 (2026-11-14 check, stored run 207 vs 203):** the siamese deviation from calibrated Glicko is nearly uncorrelated with what points_v1 adds over Glicko (r = 0.07). Stacked on points_v1 run 273 (calibrated), with its weight cross-fitted across 2022-23 / 2024-26, it gains 0.0002 ± 0.00013 (coef t = 2.9 in the full sample). That is a weak signal chosen on test data. To adopt it, retrain the siamese model on a points_v1 base and judge it on validation.
 - **Open (flag for review).** Bilinear rank 3, no per-surface W; `n_matches` not an input; well-charted N = 10; blocks 3 months, validation 6 months; alpha fit on both-vector training rows (`--alpha-rows scope` = all rows); Siamese head is an MLP, not linear; Phase 2 (point-level target + Markov roll-up) not started; per-fold style projection loops in Python and could be vectorized.
 
 ## Composite model (end-to-end predictions and accuracy)
@@ -249,10 +250,19 @@ Results:
   too small to move match log loss.
 - Reference scores from the same pass: points_v1 run 273 on tour-level test 2022-26 (n = 21,362):
   0.59843 raw, 0.59771 calibrated (run 203: 0.6045). Run 273 was chosen on validation only.
-- **Lead for the ratings layer:** the player part beyond points_v1 (t ~ 20, strongest in ATP,
-  r = 0.15) says charted players' level is not fully in the points ratings. Points_v1 may react too
-  slowly for top players, or the level in charted matches carries something the serve stats lack.
-  This is milestone 8/9 work, not style.
+- **Integration check (same day):** the null result is not the point -> Markov integration.
+  (1) Serve-side coefficients on M (~0.2-0.4) and the level term (~0.05-0.07) are the same with or
+  without a control for points_v1's own logit, so step 3's beta and gamma were the right size (step
+  2's 0.27 is a different unit: serve + return level, total point share). (2) Skipping the
+  integration and fitting match outcomes directly (logistic on points_v1 logit + level + M, fitted
+  before 2019 or on val) gives -0.0001..+0.0001 out of sample. (3) Oracle (coefficients fitted on
+  the test matches themselves): -0.00007 / -0.00009 per tour-level test match. That is the ceiling
+  for this form. On match outcomes the level term has t = 0.5-1.7 and M t <= 3.
+- **Why point-level t does not carry to wins:** 33k matches x ~150 points make tiny effects
+  significant. r = 0.04 explains 0.16% of point-share variance, worth ~0.0003 log loss at most.
+  The level term's t ~ 20 is mostly points_v1's serve-point expectations being slightly compressed
+  (controlling for its own logit halves the level term's t in 2022-26), and match-level
+  calibration already fixes that. It is not a strong lead for the ratings layer.
 
 ## Point-in-time rules (leakage)
 
