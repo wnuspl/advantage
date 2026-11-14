@@ -87,6 +87,24 @@ Reading: the closing price leans slightly toward what result-based ratings say, 
 3. **Adding information:** the current models add nothing usable. Their disagreements with the market point the wrong way.
 4. **Next test:** the points-based ratings (milestone 8). They use serve/return points won, which the market may underweight. The test is a **positive** b with z > 2 and a held-out gain of at least about 0.0004 nats/match. Rerun with `python scripts/odds_benchmark.py --runs <new run>,203`.
 
+### Points-based ratings: run 602 (`points_v1`, sweep `points-v1-final-a`)
+
+Finalized on 2022-26 with `sweep.py finalize 602 --save-predictions`. Full test set, tour level: **0.5986** (ATP 0.6002, WTA 0.5967). This is the first run below the 0.60 target, against 0.6045 for run 203. Scored with `odds_benchmark.py --runs 602,203,187` on the same 18,268 matches:
+
+| model | log loss | Δ vs market | SE | Brier | accuracy | ECE |
+|---|---|---|---|---|---|---|
+| Pinnacle close | 0.5864 | 0 | | 0.2019 | 68.0% | 0.011 |
+| **points_v1, run 602** | **0.6002** | **+0.0138** | 0.0012 | 0.2076 | 66.9% | 0.031 |
+| Glicko-2 calibrated (run 203) | 0.6065 | +0.0201 | 0.0013 | 0.2104 | 65.8% | 0.027 |
+
+- **Gap to the close:** cut by about a third, from 0.020 to 0.014 (ATP 0.015, WTA 0.013).
+- **Blend:** b = -0.03 (z = -0.6). The held-out gain over the market is **-0.00025 ± 0.00014**, so adding 602 to the market makes it slightly worse out of sample. Year-by-year b: +0.15, +0.05, -0.03, -0.01.
+  - The Glicko "fade" signal is gone. The market already prices 602's information, so its disagreements with the market are noise rather than wrong-way.
+  - This is also a weak leakage check. A model that saw same-match stats would look better than the market, and 602 doesn't.
+- **Betting at the close:** -4.4% ± 1.0% ROI on 15,040 bets.
+- **Betting at the open:** -1.0% ± 1.0% ROI. Opening lines are softer, but their capture time isn't documented.
+- **Verdict:** 602 is a much better model and clears the 0.60 target, but it doesn't beat the market. It is now as informative as the part of the market built from results and points. The remaining 0.014 is information the market has and 602 doesn't: injuries, fitness, conditions, motivation, line movement. Context features (milestone 9) are the next place it could come from.
+
 ---
 
 The sections below are the betting math and simulation written before the data arrived. Their market log losses (0.560 to 0.590) bracket the measured 0.586.
