@@ -159,6 +159,69 @@ def name_score(td_name: str, last: str, first: str, canonical: str) -> int:
     return max(s, 0)
 
 
+def name_score_full(full: str, last: str, first: str, canonical: str) -> int:
+    """Scorer for sources with full names ('Felix Auger-Aliassime'). 0 = incompatible.
+    4: same token set; 3: our surname tokens and first initial present; 2: one token set
+    contains the other (middle names, compound surnames)."""
+    theirs = _tokens(full)
+    if not theirs:
+        return 0
+    ours = _tokens(canonical) or (_tokens(first) + _tokens(last))
+    if sorted(theirs) == sorted(ours) or "".join(theirs) == "".join(ours):
+        return 4
+    ours_last = _tokens(last)
+    st, so = set(theirs), set(ours)
+    initials = {t[:1] for t in _tokens(first)}
+    if ours_last and set(ours_last) <= st and (st - set(ours_last)) and             {t[:1] for t in st - set(ours_last)} & initials:
+        return 3
+    if (st <= so or so <= st) and len(st & so) >= 2:
+        return 2
+    return 0
+
+
+# Valuebetennis (valuebetennis.com/en/donnees.htm, CC BY 4.0): one CSV per season,
+# ';'-separated, UTF-8 with BOM, full names, Pinnacle opening and closing odds.
+VB_TOUR_CATEGORIES = {"Main tour", "Masters", "Grand Chelem", "Grand Slam", ""}
+
+
+def read_vb_file(path: Path) -> tuple[list[TdRow], dict]:
+    """Rows of one Valuebetennis season file, winner/loser oriented. Returns (rows, counts):
+    rows outside tour-level categories or without a winner are counted, not returned."""
+    import csv
+    path = Path(path)
+    counts = {"read": 0, "not_tour_category": 0, "no_winner": 0, "kept": 0}
+    out = []
+    with open(path, encoding="utf-8-sig", newline="", errors="replace") as fh:
+        rd = csv.DictReader(fh, delimiter=";")
+        need = {"match_id", "date", "categorie", "genre", "joueur1", "joueur1_id", "joueur2",
+                "joueur2_id", "cote1_cloture", "cote2_cloture", "cote1_ouverture",
+                "cote2_ouverture", "vainqueur_id"}
+        missing = need - set(rd.fieldnames or [])
+        if missing:
+            raise ValueError(f"{path.name}: missing columns {sorted(missing)}")
+        for r in rd:
+            counts["read"] += 1
+            if r["categorie"] not in VB_TOUR_CATEGORIES:
+                counts["not_tour_category"] += 1
+                continue
+            w = r["vainqueur_id"]
+            if w not in (r["joueur1_id"], r["joueur2_id"]) or not w:
+                counts["no_winner"] += 1
+                continue
+            first_won = w == r["joueur1_id"]
+            od = {}
+            for kind, a, b in (("PS_close", "cote1_cloture", "cote2_cloture"),
+                               ("PS_open", "cote1_ouverture", "cote2_ouverture")):
+                x, y = _num(r[a]), _num(r[b])
+                if x and y and x > 1 and y > 1:
+                    od[kind] = (x, y) if first_won else (y, x)
+            win, lose = (r["joueur1"], r["joueur2"]) if first_won else (r["joueur2"], r["joueur1"])
+            out.append(TdRow(f"vb:{r['match_id']}", r["genre"], r["date"][:10], r.get("tournoi", ""),
+                             r.get("tour", ""), win, lose, r.get("score", ""), r.get("surface", ""), od))
+            counts["kept"] += 1
+    return out, counts
+
+
 # ------------------------------------------------------------------ linking
 
 @dataclass
@@ -202,26 +265,43 @@ class Link:
 
 
 def link(rows: list[TdRow], ours: list[OurMatch], names: dict, *, before: int = 17,
-         after: int = 1, day_tol: int = 2) -> list[Link]:
-    """Each td row -> one of our matches. Candidate = same tour, edition start in
+         after: int = 1, day_tol: int = 2, scorer=None) -> list[Link]:
+    """Each odds row -> one of our matches. Candidate = same tour, edition start in
     [date - before, date + after], exact match day (when we have one) within day_tol, and
-    both names compatible. Best total name score wins; a tie is 'ambiguous'. A pair found
-    with winner and loser swapped is 'winner_disagrees' (not linked: the sources disagree on
-    the result). A backbone match is used at most once (first claim by best score)."""
-    by_tour_start: dict[tuple[str, str], list[OurMatch]] = {}
+    both names compatible (`scorer`, default the tennis-data 'Last F.' scorer). Best total
+    name score wins; a tie is 'ambiguous'. A pair found with winner and loser swapped is
+    'winner_disagrees' (not linked: the sources disagree on the result). A backbone match
+    is used at most once (the best-scoring claim keeps it, others get 'duplicate_claim')."""
+    scorer = scorer or name_score
+    by_tsp: dict[tuple[str, str], dict[int, list[OurMatch]]] = {}
+    starts: dict[str, list[str]] = {}
+    tok_index: dict[str, set[int]] = {}
     for m in ours:
-        by_tour_start.setdefault((m.tour, m.start), []).append(m)
-    starts = {}
-    for (tour, st) in by_tour_start:
-        starts.setdefault(tour, []).append(st)
-    cache: dict[tuple[str, int], int] = {}
-
-    def sc(td_name, pid):
-        k = (td_name, pid)
-        if k not in cache:
+        d = by_tsp.setdefault((m.tour, m.start), {})
+        if not d:
+            starts.setdefault(m.tour, []).append(m.start)
+        d.setdefault(m.winner, []).append(m)
+        d.setdefault(m.loser, []).append(m)
+        for pid in (m.winner, m.loser):
             last, first, canon = names.get(pid, ("", "", ""))
-            cache[k] = name_score(td_name, last, first, canon)
-        return cache[k]
+            for t in set(_tokens(canon)) | set(_tokens(last)):
+                tok_index.setdefault(t, set()).add(pid)
+    pcache: dict[str, dict[int, int]] = {}
+
+    def cands(name: str) -> dict[int, int]:
+        if name not in pcache:
+            pids = set()
+            for t in _tokens(name.replace(".", " ")):
+                if len(t) > 1:
+                    pids |= tok_index.get(t, set())
+            got = {}
+            for pid in pids:
+                last, first, canon = names.get(pid, ("", "", ""))
+                sc = scorer(name, last, first, canon)
+                if sc:
+                    got[pid] = sc
+            pcache[name] = got
+        return pcache[name]
 
     results = []
     for r in rows:
@@ -229,28 +309,29 @@ def link(rows: list[TdRow], ours: list[OurMatch], names: dict, *, before: int = 
             results.append(Link(r, None, "no_date"))
             continue
         d = _d(r.date)
-        cands, swapped = [], 0
+        cw, cl = cands(r.winner), cands(r.loser)
+        found, swapped = {}, 0
         for st in starts.get(r.tour, []):
             delta = (d - _d(st)).days
             if not (-after <= delta <= before):
                 continue
-            for m in by_tour_start[(r.tour, st)]:
-                if m.match_date and abs((d - _d(m.match_date)).days) > day_tol:
-                    continue
-                sw, sl = sc(r.winner, m.winner), sc(r.loser, m.loser)
-                if sw and sl:
-                    cands.append((sw + sl, m.match_id))
-                elif sc(r.winner, m.loser) and sc(r.loser, m.winner):
-                    swapped += 1
-        if not cands:
+            idx = by_tsp[(r.tour, st)]
+            for wp in cw:
+                for m in idx.get(wp, ()):
+                    if m.match_date and abs((d - _d(m.match_date)).days) > day_tol:
+                        continue
+                    if m.winner == wp and m.loser in cl:
+                        found[m.match_id] = cw[wp] + cl[m.loser]
+                    elif m.loser == wp and m.winner in cl:
+                        swapped += 1
+        if not found:
             results.append(Link(r, None, "winner_disagrees" if swapped else "no_candidate"))
             continue
-        cands.sort(reverse=True)
-        if len(cands) > 1 and cands[0][0] == cands[1][0]:
-            results.append(Link(r, None, "ambiguous", cands[0][0]))
+        ranked = sorted(((sc, mid) for mid, sc in found.items()), reverse=True)
+        if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
+            results.append(Link(r, None, "ambiguous", ranked[0][0]))
         else:
-            results.append(Link(r, cands[0][1], "linked", cands[0][0]))
-    # a backbone match may be claimed once: keep the best-scoring claim
+            results.append(Link(r, ranked[0][1], "linked", ranked[0][0]))
     best: dict[int, Link] = {}
     for lk in results:
         if lk.match_id is not None:

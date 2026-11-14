@@ -158,6 +158,41 @@ class TestLink(unittest.TestCase):
         self.assertEqual(sorted(l.reason for l in got), ["duplicate_claim", "linked"])
 
 
+class TestValuebetennis(unittest.TestCase):
+    CSV = ("\ufeffmatch_id;date;tournoi;tournoi_id;categorie;genre;surface;tour;joueur1;joueur1_id;"
+           "joueur2;joueur2_id;cote1_ouverture;cote2_ouverture;cote1_cloture;cote2_cloture;"
+           "vainqueur_id;score;duree_min\n"
+           '1;"2024-01-15 09:00:00";"Australian Open";9;"Grand Chelem";atp;dur;4;"Alex de Minaur";'
+           '20;"Felix Auger-Aliassime";10;1.900;1.950;1.800;2.050;10;"6-4 6-4 6-4";\n'
+           '2;"2024-01-15 09:00:00";"M15 Monastir";12;ITF;atp;dur;2;"A B";1;"C D";2;;;;;1;;\n'
+           '3;"2024-01-16 09:00:00";"Australian Open";9;"Grand Chelem";atp;dur;4;"Giovanni Mpetshi Perricard";'
+           '30;"J.J. Wolf";40;;;;;30;"7-6 6-3 6-4";\n')
+
+    def test_read_orients_odds_to_winner(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "valuebetennis-matchs-2024.csv"
+            p.write_text(self.CSV, encoding="utf-8")
+            rows, counts = odds.read_vb_file(p)
+        self.assertEqual(counts, {"read": 3, "not_tour_category": 1, "no_winner": 0, "kept": 2})
+        r = rows[0]
+        self.assertEqual((r.winner, r.loser, r.date), ("Felix Auger-Aliassime", "Alex de Minaur", "2024-01-15"))
+        self.assertEqual(r.odds["PS_close"], (2.05, 1.8))     # winner first
+        self.assertEqual(r.odds["PS_open"], (1.95, 1.9))
+        self.assertEqual(rows[1].odds, {})                     # no odds: kept, empty
+
+    def test_full_name_scorer_and_link(self):
+        f = odds.name_score_full
+        self.assertEqual(f("Alex de Minaur", "De Minaur", "Alex", "Alex De Minaur"), 4)
+        self.assertGreater(f("J.J. Wolf", "Wolf", "Jeffrey John", "Jeffrey John Wolf"), 0)
+        self.assertEqual(f("Andy Murray", "Moutet", "Corentin", "Corentin Moutet"), 0)
+        names = TestLink.NAMES
+        ours = [odds.OurMatch(10, "atp", "2024-01-14", None, 1, 2, "completed")]
+        row = odds.TdRow("vb:1", "atp", "2024-01-15", "AO", "4", "Felix Auger-Aliassime",
+                         "Alex de Minaur", "", "dur", {})
+        lk = odds.link([row], ours, names, scorer=f)[0]
+        self.assertEqual((lk.match_id, lk.reason), (10, "linked"))
+
+
 class TestDevig(unittest.TestCase):
     def test_methods_sum_to_one_and_order(self):
         o1, o2 = np.array([1.5, 1.2, 1.95]), np.array([2.7, 4.6, 1.92])

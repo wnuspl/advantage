@@ -1,28 +1,95 @@
-# Odds benchmark: how good the model has to be
+# Odds benchmark: the closing market vs our models
 
-Status (2026-11-14): **the measured comparison against closing odds is not done yet.** tennis-data.co.uk returns a Cloudflare 403 from both networks tried, so no odds file has been downloaded. This report covers what can be worked out without the files:
+Measured 2026-11-14 with `python scripts/odds_benchmark.py` (about 40 s; output also in `models/odds/benchmark.json`).
 
-1. the betting math, which is exact;
-2. a simulation of when a model makes money against a closing market;
-3. targets to measure once the files arrive.
+**Source:** Valuebetennis, *Tennis results and odds since 2021*, https://www.valuebetennis.com/en/donnees.htm, CC BY 4.0 (credit with a link). It has Pinnacle opening and closing odds, where closing is "last odds recorded before the match", captured live since 2021. The six season CSVs are pinned in `data/raw/valuebetennis-20261114/` (gitignored). Their sha256 values:
 
-Every number below that depends on the market's own accuracy treats that accuracy as an assumption and varies it. None of it is a measurement.
+| file | sha256 |
+|---|---|
+| valuebetennis-matchs-2021.csv | ea30ae06fab7734ada518b974aacf55bea3cde41ff569f1135c9d05f79cc9aee |
+| valuebetennis-matchs-2022.csv | e4bab3987820ecdded8895648ac7bcbdac2539410fc5d4a9901febb6f95b114c |
+| valuebetennis-matchs-2023.csv | fa45622d678b17176c8b950d09872538dd765a684b16e1910a3ede4e75664bfb |
+| valuebetennis-matchs-2024.csv | 09437d8208c937d9efb82af232edf6c6f8520be7ec2d6773dde71886b79c68ef |
+| valuebetennis-matchs-2025.csv | 46bd9c25673228aeb279f653b508a6e1c8f0b5291645614de6912a581f217d21 |
+| valuebetennis-matchs-2026.csv | ad16d85e9af1b0bcda91bff0834c9398e1dbf6397dce39f1558082e317f64652 |
 
-Code is ready for when the data arrives. It has been checked by hand but has no unit tests yet:
-- `src/tennis/xlsx_lite.py`: reads `.xlsx` with the standard library only.
-- `src/tennis/odds.py`: parses tennis-data rows, links them to backbone matches with every row accounted for, removes the bookmaker margin (multiplicative, additive, power or Shin), fits a blend of model and market, runs a betting backtest and simulates.
+tennis-data.co.uk blocked both networks we tried (Cloudflare 403). Its reader (`xlsx_lite.py`, `odds.read_td_file`) is kept and tested for when it becomes reachable.
 
-## Where we stand
+The site sells betting tips. Only its raw odds are used here, never its predictions or published track record. Odds are a benchmark and never a feature.
 
-| | tour-level log loss, test 2022-26 | Brier | accuracy |
-|---|---|---|---|
-| Surface Elo (run 132) | 0.6076 | 0.2106 | 66.2% |
-| Glicko-2 (run 187) | 0.6051 | 0.2097 | 66.1% |
-| Glicko-2 + alpha calibration (run 203) | 0.6045 | 0.2095 | 66.1% |
-| Siamese matchup (run 207) | 0.6042 | 0.2094 | 65.9% |
-| Pinnacle closing odds | **not measured yet** | | |
+## Results
 
-The run 187 predictions alone hint at how much is learnable. If outcomes were drawn from run 187's own probabilities, its log loss would be 0.589. Its actual 0.605 means its probabilities carry noise. The closing market is expected to sit below 0.605. How far below is the first thing to measure. The simulation covers markets at 0.560, 0.575 and 0.590, and the conclusions below hold across all three.
+### Linking
+
+- **Rows:** 476,336 rows read. 47,741 are in tour-level categories ("Main tour", "Masters", "Grand Chelem" or blank).
+- **Linked:** 24,408 linked to a backbone match by `odds.link` with the full-name scorer.
+- **Not linked** (each row has its reason):
+  - 23,053 with no candidate. These are mostly qualifying (round codes 1-3), juniors, Hopman Cup and matches after our 2026-05-25 cutoff.
+  - 154 ambiguous.
+  - 69 where the sources disagree on the winner. All of these are retirements, where Valuebetennis records the retiring player as winner.
+  - 57 duplicate claims.
+- **Spot check:** 10 of 10 random links were correct.
+- **Coverage:** **85.5% of our tour-level 2022-26 matches (18,382 of 21,505) have Pinnacle closing odds.** The comparison below uses the 18,268 matches that every compared run also predicted.
+
+### The market vs our models (identical matches, tour level, 2022-01 to 2026-06)
+
+Market = Pinnacle close, de-vigged by the power method. Δ = log-loss difference vs the market, with standard error. Pinnacle's median margin is 2.85%.
+
+| model | log loss | Δ vs market | SE | Brier | accuracy | ECE |
+|---|---|---|---|---|---|---|
+| **Pinnacle close** (power) | **0.5864** | 0 | | 0.2019 | 68.0% | 0.011 |
+| Pinnacle close (multiplicative / Shin) | 0.5866 / 0.5864 | +0.0001 / -0.0000 | | 0.2019 | 68.0% | 0.010 |
+| Pinnacle open (power, where available) | 0.5904 | +0.0040 | 0.0006 | 0.2035 | 67.7% | 0.013 |
+| Surface Elo (run 132) | 0.6098 | +0.0234 | 0.0014 | 0.2116 | 65.9% | 0.034 |
+| Glicko-2 (run 187) | 0.6072 | +0.0208 | 0.0013 | 0.2107 | 65.8% | 0.028 |
+| Glicko-2 calibrated (run 203) | 0.6065 | +0.0201 | 0.0013 | 0.2104 | 65.8% | 0.027 |
+| Siamese matchup (run 207) | 0.6061 | +0.0197 | 0.0013 | 0.2102 | 65.7% | 0.026 |
+
+- **Gap to the closing line: 0.020 nats** (0.023 ATP, 0.017 WTA). The gap is steady every year: 0.016 to 0.024.
+- **The < 0.60 target is reachable.** The closing market sits at 0.586, so 0.60 is about 70% of the way from our models to the market. The market itself scored **0.6006 in 2025**, so 2025 was a hard year for everyone. Always compare against the market on the same matches and years, never against a fixed number.
+- On these matches our models score about 0.002 worse than on the full set (0.6065 vs 0.6045 for run 203). The 15% of matches without odds are easier ones.
+- The market is close to calibrated (ECE 0.011; refitting its slope gives a = 0.97, no gain). Our models have 2-3 times its calibration error.
+- Opening lines are 0.004 worse than closing lines. That is the information that arrives between the line opening and the start of the match.
+
+### Do we add anything to the market?
+
+Blend fitted walk-forward by year (fit on earlier years only, score the next year, 2023-26): `logit P = a*logit(market) + b*logit(model)`.
+
+| model | in-sample b (z) | held-out gain over market, nats/match |
+|---|---|---|
+| Surface Elo | -0.18 (-4.5) | +0.00048 ± 0.00023 |
+| Glicko-2 raw | -0.21 (-4.6) | +0.00050 ± 0.00026 |
+| Glicko-2 calibrated | -0.22 (-4.6) | +0.00049 ± 0.00026 |
+| Siamese | -0.20 (-4.2) | +0.00040 ± 0.00024 |
+
+**The weight b on our models is negative.** None of these models adds information in the ordinary sense. When Glicko rates a player above the market, the player wins *less* than even the market says:
+
+| model minus market (logit) | n | market p | model p | actual |
+|---|---|---|---|---|
+| below -0.5 | 1,099 | 0.688 | 0.566 | 0.684 |
+| -0.5 to -0.2 | 2,802 | 0.590 | 0.524 | 0.606 |
+| -0.2 to +0.2 | 7,349 | 0.515 | 0.517 | 0.512 |
+| +0.2 to +0.5 | 4,501 | 0.453 | 0.521 | 0.431 |
+| above +0.5 | 2,631 | 0.357 | 0.494 | 0.328 |
+
+Reading: the closing price leans slightly toward what result-based ratings say, and the truth sits a little further from the ratings than the market does. The small held-out gain (about 2 SE) comes entirely from that fade, not from sharpening the market (sharpening gains 0.0000).
+
+**Betting:**
+- Betting our models directly at closing prices loses **-8% ROI** (±1.1-1.2%) on about 15,500 bets. That is much worse than the margin. The models disagree most on underdogs (average odds 3.4-3.7), which is exactly where they are wrong.
+- The walk-forward "fade" blend makes **+2.0% ± 1.8%** on 4,171 bets (threshold 0) and +6.6% ± 3.2% on 1,740 bets (threshold 0.02).
+- The fade blend is not significant and not stable: 2023 +0.2%, 2024 +7.2%, 2025 0.0%, 2026 -1.9%.
+- **There is no edge.** The fade is a lead to recheck on the next season, not a result.
+
+### Verdict
+
+1. **The gap to beat:** 0.020 log loss to the Pinnacle close, on 18k identical tour-level matches.
+2. **Target < 0.60:** reachable in principle; the market is at 0.586.
+3. **Adding information:** the current models add nothing usable. Their disagreements with the market point the wrong way.
+4. **Next test:** the points-based ratings (milestone 8). They use serve/return points won, which the market may underweight. The test is a **positive** b with z > 2 and a held-out gain of at least about 0.0004 nats/match. Rerun with `python scripts/odds_benchmark.py --runs <new run>,203`.
+
+---
+
+The sections below are the betting math and simulation written before the data arrived. Their market log losses (0.560 to 0.590) bracket the measured 0.586.
 
 ## 1. The exact math
 
@@ -108,19 +175,20 @@ Real edges against a closing line are usually a fraction of these figures. Quart
 
 Ordered from realistic to hard:
 
-1. **Measure the gap.** Find the log loss, Brier and calibration of Pinnacle's closing odds on the same 21k tour matches. Our expectation, to be confirmed: the market is 0.02 to 0.04 ahead of run 187.
-2. **Halve the gap.** Get within about 0.01 of the closing line. That is a strong result for a model built only on results and charting data, and a good research goal on its own.
+1. **Measure the gap.** Done: the closing market is 0.020 ahead of our best models (0.5864 vs 0.6061 on 18,268 identical matches).
+2. **Halve the gap.** Get within about 0.01 of the closing line, meaning a log loss of about 0.596 on these matches. That is a strong result for a model built only on results and charting data, and a good research goal on its own.
 3. **Add information to the market.** Get a walk-forward blend weight `b > 0` with z > 2, and a held-out `gain > 0` in most quarterly blocks. This is the honest definition of "beating the market". It does not require a better standalone log loss.
 4. **Break even against Pinnacle's closing line.** Held-out gain of at least about **0.0004 nats per match**, stable across blocks, confirmed by a flat-stake backtest of 10,000 or more bets. Clearing it against average bookmakers needs about 0.0013. Odds better than the close (opening lines, best price across bookmakers) lower the bar but need verified capture times.
 5. **Beat the close outright** (standalone log loss below Pinnacle's). Rare even for professional syndicates. Not a sensible target.
 
 Reasonable target: goals 1 to 3 this phase, with goal 4 as the stretch bar. Treat any backtest ROI above about 5% against the close as a bug (leakage, stale odds or a matching error) until proven otherwise.
 
-## To run once the files are available
+## Rerunning
 
-1. Put the ATP and WTA yearly `.xlsx` files for 2019-2026, plus `notes.txt`, in their own folder under `data/raw/`.
-2. Confirm from `notes.txt` which columns are *closing* odds before calling anything "closing". Odds are never a feature.
-3. Link the rows with `odds.link`. Report the linked share and the reasons for rows left unlinked.
-4. Score the market (devig by power and Shin as well as multiplicative) next to runs 187, 203 and 207 on identical matches.
-5. Fit the blend walk-forward by year and report `b`, its z-score and the held-out gain.
-6. Backtest with `odds.backtest` against PS (Pinnacle), Avg and Max prices.
+```bash
+python scripts/odds_benchmark.py --runs 132,187,203,207
+```
+
+- Add a new model's run ID to `--runs`. The script scores every run on the same matches and refits the blend for each one.
+- New seasons: download a new pinned folder (raw files are immutable) and pass `--raw`.
+- Not yet done: loading the odds into `tennis.db`'s `odds` table through the build (snapshot registration, `load_run` accounting). For now the link is recomputed on each run, which takes about 30 seconds.
