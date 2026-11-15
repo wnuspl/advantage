@@ -3,6 +3,14 @@
     python scripts/predict_match.py "Sinner" "Alcaraz"
     python scripts/predict_match.py "Swiatek" "Sabalenka" --surface clay --date 2026-06-01
     python scripts/predict_match.py "Sinner" "Alcaraz" --best-of 5 --final tb --top 8
+    python scripts/predict_match.py "Shelton" "Fils" --score "4-6 3-2" --points 30-40 --serving A
+    python scripts/predict_match.py "Shelton" "Fils" --score "4-6 3-2" --serving B --serve-pts 31/48 36/50
+
+In play (--score, --points, --serving): the same serve-point probabilities rolled up from
+the current score (markov.match_from), with the uncertainty shrink. --serve-pts also
+updates each serve logit on the serve points won so far this match (today's form:
+points_rating.in_match_form). Everything is the independent-points model; it has not
+been checked against real in-play outcomes yet.
 
 The run (default 694, the current baseline) is replayed over every edition starting
 before --date, so the ratings are the ones the model would have used that day. Names
@@ -55,6 +63,18 @@ def main(argv=None) -> int:
                     help="deciding set: tb (tiebreak), adv, tb12, mtb (match tiebreak)")
     ap.add_argument("--run", type=int, default=694)
     ap.add_argument("--top", type=int, default=5)
+    live = ap.add_argument_group("in play (from mid-match)")
+    live.add_argument("--score", help="games so far, A's first, last set may be in progress: '6-4 3-6 2-1'")
+    live.add_argument("--points", default="", help="current game, A's first: '30-15', '40-AD'; tiebreak: '5-3'")
+    live.add_argument("--serving", choices=["A", "B", "a", "b"],
+                      help="who serves the next point (required with --score)")
+    live.add_argument("--serve-pts", nargs=2, metavar=("A_WON/PLAYED", "B_WON/PLAYED"),
+                      help="serve points won/played so far this match, e.g. 41/60 35/58: updates "
+                           "each player's serve logit for today's form")
+    live.add_argument("--deciding-tb", type=int, default=7, choices=[7, 10],
+                      help="points in the deciding set's tiebreak at 6-6 (10 at the slams since 2022)")
+    live.add_argument("--form-var", type=float, default=points_rating.IN_PLAY_FORM_VAR,
+                      help="in-match form variance for --serve-pts (default fit by scripts/inplay_form_test.py)")
     ap.add_argument("--models", type=Path, default=models_db.MODELS_DB)
     ap.add_argument("--data", type=Path, default=models_db.DATA_DB)
     args = ap.parse_args(argv)
@@ -93,7 +113,35 @@ def main(argv=None) -> int:
     print(f"\n  most likely scorelines ({name_a}'s games first):")
     for score, pr in markov.top_scores(markov.match_score_dist(pa, pb, args.best_of, args.final), args.top):
         print(f"    {score:24s} {pr:5.1%}")
+    if args.score is not None:
+        in_play(args, st, name_a, name_b, xa, xb, va, vb, p_win)
     return 0
+
+
+def in_play(args, st, name_a, name_b, xa, xb, va, vb, p_pre) -> None:
+    """P(A wins) from the live score, with and without today's serve record."""
+    if args.serving is None:
+        raise SystemExit("--score needs --serving A|B (who serves the next point)")
+    sc = markov.parse_live(args.score, args.points, args.best_of, args.final)
+    a_srv = args.serving.upper() == "A"
+    kw = dict(best_of=args.best_of, final=args.final, score=sc, a_serving=a_srv,
+              deciding_tb_points=args.deciding_tb)
+    p_live = points_rating.in_play_probability(st, xa, xb, va, vb, **kw)
+    srv = name_a if a_srv else name_b
+    print(f"\n  in play: sets {sc['sets_a']}-{sc['sets_b']}, games {sc['games_a']}-{sc['games_b']}, "
+          f"points {args.points or '0-0'}, {srv} to serve")
+    print(f"  P({name_a} wins) = {p_live:.1%}   (pre-match {p_pre:.1%})")
+    if args.serve_pts:
+        (ka, na), (kb, nb) = ((int(v) for v in s.split("/")) for s in args.serve_pts)
+        xa2, va2 = points_rating.in_match_form(xa, va, ka, na, args.form_var)
+        xb2, vb2 = points_rating.in_match_form(xb, vb, kb, nb, args.form_var)
+        p_form = points_rating.in_play_probability(st, xa2, xb2, va2, vb2, **kw)
+        sig = lambda x: 1 / (1 + markov.math.exp(-x))               # noqa: E731
+        print(f"  with today's serve record ({name_a} {ka}/{na}, {name_b} {kb}/{nb}): "
+              f"P({name_a} wins) = {p_form:.1%}")
+        print(f"    serve points: {name_a} {sig(xa):.1%} -> {sig(xa2):.1%}, "
+              f"{name_b} {sig(xb):.1%} -> {sig(xb2):.1%}")
+    print("  (independent points from here; not calibrated on in-play outcomes)")
 
 
 if __name__ == "__main__":

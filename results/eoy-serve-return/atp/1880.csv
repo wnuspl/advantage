@@ -1,0 +1,3 @@
+rank,player_id,player,country,age,overall,serve,return,serve_sd,return_sd,serve_pts_won,return_pts_won,hard_serve,hard_return,clay_serve,clay_return,grass_serve,grass_return,overall_neutral,serve_neutral,return_neutral,matches,stat_matches,last_event_start
+1,13952,Herbert Fortescue Lawford,GBR,29.6,0.6014,0.1043,0.4971,0.0962,0.0988,55.4,49.5,,,,,0.1257,0.573,0.6516,0.1242,0.5274,11,0,1880-07-05
+2,13948,Charles Gilbert Heathcote,GBR,39.8,0.205,-0.129,0.334,0.112,0.1125,49.6,45.4,,,,,-0.1151,0.3903,0.6097,0.1166,0.4931,12,0,1880-07-05

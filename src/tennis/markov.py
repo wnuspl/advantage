@@ -377,3 +377,177 @@ def set_count_dist(pa: float, pb: float, best_of: int = 3, final: str = "tb") ->
 def top_scores(dist: dict, top: int = 5) -> list:
     """The `top` most likely scorelines of match_score_dist, most likely first."""
     return sorted(dist.items(), key=lambda kv: -kv[1])[:top]
+
+
+# ---------------------------------------------------------------------------- in play
+# P(A wins) from any score, same independent-points model. Scalars only (pure Python).
+# `a_serving` is who serves the NEXT point (inside a tiebreak the server changes every
+# two points, so it is the next point's server, not the server of the set's last game).
+
+TENNIS_POINTS = {"0": 0, "15": 1, "30": 2, "40": 3, "AD": 4, "A": 4}
+
+
+def game_from(p: float, i: int, j: int) -> float:
+    """P(server wins the game) from i-j in points (server's first; 0,1,2,3 = 0,15,30,40;
+    past deuce only the difference matters)."""
+    if i >= 4 and i - j >= 2:
+        return 1.0
+    if j >= 4 and j - i >= 2:
+        return 0.0
+    if i >= 3 and j >= 3:
+        d = p * p / (p * p + (1 - p) ** 2)              # P(win from deuce)
+        if i == j:
+            return d
+        return p + (1 - p) * d if i > j else p * d
+    return p * game_from(p, i + 1, j) + (1 - p) * game_from(p, i, j + 1)
+
+
+def tiebreak_from(pa: float, pb: float, i: int, j: int, a_serving: bool, n: int = 7) -> float:
+    """P(A wins a first-to-n, win-by-2 tiebreak) from points i-j (A's first), A serving
+    the next point if a_serving. Serve order ABBAABB... from the tiebreak's first server."""
+    k = i + j
+    a_first = a_serving == (((k + 1) // 2) % 2 == 0)    # who served point 0
+    w, l_ = pa * (1 - pb), (1 - pa) * pb
+    memo: dict = {}
+
+    def f(i, j):
+        if i >= n and i - j >= 2:
+            return 1.0
+        if j >= n and j - i >= 2:
+            return 0.0
+        if i == j and i >= n - 1:                        # even point count: the next two
+            return w / (w + l_)                          # points are served one each
+        key = (i, j)
+        if key not in memo:
+            a_srv = ((((i + j + 1) // 2) % 2) == 0) == a_first
+            pw = pa if a_srv else 1 - pb
+            memo[key] = pw * f(i + 1, j) + (1 - pw) * f(i, j + 1)
+        return memo[key]
+
+    return f(i, j)
+
+
+def set_from(pa: float, pb: float, gi: int, gj: int, a_serving: bool, final: str = "tb",
+             pi: int = 0, pj: int = 0, tb_points: int = 7) -> float:
+    """P(A wins the set) from games gi-gj (A's first) and points pi-pj (A's first) in the
+    current game or tiebreak; a_serving = A serves the next point. final: 'tb' (tiebreak
+    at 6-6), 'tb12' (at 12-12), 'adv' (none). tb_points: the set tiebreak's length."""
+    ga, gb = game(pa), game(pb)
+    at = {"tb": 6, "tb12": 12, "adv": None}[final]
+    memo: dict = {}
+
+    def boundary(gi, gj, a_srv):                         # start of a game
+        if (gi >= 6 and gi - gj >= 2) or (at and gi == at + 1):
+            return 1.0
+        if (gj >= 6 and gj - gi >= 2) or (at and gj == at + 1):
+            return 0.0
+        if at and gi == gj == at:
+            return tiebreak_from(pa, pb, 0, 0, a_srv, tb_points)
+        if at is None and gi == gj and gi >= 5:          # pairs of games, one served by each
+            w, l_ = ga * (1 - gb), (1 - ga) * gb
+            return w / (w + l_)
+        key = (gi, gj, a_srv)
+        if key not in memo:
+            pw = ga if a_srv else 1 - gb                 # P(A wins this game)
+            memo[key] = pw * boundary(gi + 1, gj, not a_srv) + (1 - pw) * boundary(gi, gj + 1, not a_srv)
+        return memo[key]
+
+    if at and gi == gj == at:
+        return tiebreak_from(pa, pb, pi, pj, a_serving, tb_points)
+    if pi == pj == 0:
+        return boundary(gi, gj, a_serving)
+    h = game_from(pa, pi, pj) if a_serving else 1 - game_from(pb, pj, pi)   # P(A wins game)
+    return h * boundary(gi + 1, gj, not a_serving) + (1 - h) * boundary(gi, gj + 1, not a_serving)
+
+
+def match_from(pa: float, pb: float, best_of: int, final: str, sets_a: int, sets_b: int,
+               games_a: int = 0, games_b: int = 0, pts_a: int = 0, pts_b: int = 0,
+               a_serving: bool = True, deciding_tb_points: int = 7) -> float:
+    """P(A wins the match) from any score. Completed sets matter only through their
+    count; who serves first in a set does not change its win probability, so later sets
+    are identically distributed (the deciding set by `final`). In a match-tiebreak
+    deciding set ('mtb') the score is pts_a-pts_b and the games are ignored.
+    deciding_tb_points: 10 for the slams' 10-point tiebreak at 6-6 in the deciding set
+    (pre-match it is modelled as 7: see the module docstring)."""
+    need = best_of // 2 + 1
+    if max(sets_a, sets_b) >= need:
+        return 1.0 if sets_a >= need else 0.0
+    memo: dict = {}
+
+    def regular():
+        if "s" not in memo:
+            memo["s"] = set_(pa, pb, "tb")
+        return memo["s"]
+
+    def decider():              # a future deciding set: its own rule and tiebreak length
+        if "f" not in memo:
+            if final == "mtb":
+                memo["f"] = tiebreak(pa, pb, 10)
+            elif final == "tb" and deciding_tb_points == 7:
+                memo["f"] = regular()
+            else:
+                memo["f"] = set_from(pa, pb, 0, 0, True, final, tb_points=deciding_tb_points)
+        return memo["f"]
+
+    def rest(sa, sb):
+        if sa == need:
+            return 1.0
+        if sb == need:
+            return 0.0
+        if (sa, sb) not in memo:
+            q = decider() if sa == sb == need - 1 else regular()
+            memo[(sa, sb)] = q * rest(sa + 1, sb) + (1 - q) * rest(sa, sb + 1)
+        return memo[(sa, sb)]
+
+    deciding = sets_a == sets_b == need - 1
+    if deciding and final == "mtb":
+        q = tiebreak_from(pa, pb, pts_a, pts_b, a_serving, 10)
+    elif deciding:
+        q = set_from(pa, pb, games_a, games_b, a_serving, final, pts_a, pts_b, deciding_tb_points)
+    else:
+        q = set_from(pa, pb, games_a, games_b, a_serving, "tb", pts_a, pts_b)
+    return q * rest(sets_a + 1, sets_b) + (1 - q) * rest(sets_a, sets_b + 1)
+
+
+def set_over(a: int, b: int, final: str = "tb") -> bool:
+    """Is a set (games, either order) finished? 'tb': 6-x with a 2-game lead, 7-5, 7-6;
+    'tb12': also 13-12; 'adv': a 2-game lead from 6 up."""
+    hi, lo = max(a, b), min(a, b)
+    if final == "tb" and hi == 7 and lo in (5, 6):
+        return True
+    if final == "tb12" and hi == 13 and lo == 12:
+        return True
+    return hi >= 6 and hi - lo >= 2
+
+
+def parse_live(score: str, points: str = "", best_of: int = 3, final: str = "tb") -> dict:
+    """'6-4 3-6 2-1' (A's games first; the last set may be in progress) and '30-15' (A's
+    points first: 0/15/30/40/AD; plain numbers inside a tiebreak or match tiebreak) ->
+    match_from() keyword arguments. A match-tiebreak deciding set is given by points
+    only: score '6-4 4-6', points '5-3'."""
+    need = best_of // 2 + 1
+    sa = sb = 0
+    games = (0, 0)
+    toks = [t.strip("[]()") for t in score.split()]
+    for k, t in enumerate(toks):
+        a, b = (int(x) for x in t.split("-"))
+        deciding = sa == sb == need - 1
+        if deciding and final == "mtb":
+            raise ValueError("deciding match tiebreak: give its score as points, not a set")
+        if set_over(a, b, final if deciding else "tb"):
+            sa, sb = sa + (a > b), sb + (b > a)
+            if max(sa, sb) >= need:
+                raise ValueError(f"the match is already over ({sa}-{sb} in sets)")
+            continue
+        if k != len(toks) - 1:
+            raise ValueError(f"set {t!r} is unfinished but is not the last one")
+        games = (a, b)
+    deciding = sa == sb == need - 1
+    tb_at = None if deciding and final == "adv" else 12 if deciding and final == "tb12" else 6
+    in_tb = (deciding and final == "mtb") or (tb_at is not None and games == (tb_at, tb_at))
+    pa_ = pb_ = 0
+    if points:
+        x, y = points.upper().split("-")
+        pa_, pb_ = (int(x), int(y)) if in_tb else (TENNIS_POINTS[x], TENNIS_POINTS[y])
+    return {"sets_a": sa, "sets_b": sb, "games_a": games[0], "games_b": games[1],
+            "pts_a": pa_, "pts_b": pb_}

@@ -108,6 +108,82 @@ def features(m, edition, dob: dict) -> tuple[np.ndarray, np.ndarray]:
     return C
 
 
+def features_at(m, edition, dob: dict, queries: dict[int, tuple[int | None, int]]) -> dict[int, np.ndarray]:
+    """Context of a match that is not in m (a live prediction): queries maps player_id ->
+    (edition id of that match or None for an edition not in the data, day ordinal).
+    Replays features()' bookkeeping over every match in m (all must be before the day),
+    then builds the vector exactly as features() would for that player's next match."""
+    return features_from_states(player_states(m, edition, set(queries)), dob, queries)
+
+
+def player_states(m, edition, pids: set | None = None) -> dict:
+    """features()' per-player bookkeeping after every match in m (pids None = all
+    players). Picklable: cache it and call features_from_states() for live matches."""
+    st = defaultdict(_P) if pids is None else {pid: _P() for pid in pids}
+    days: dict[str, int] = {}
+    for i in range(len(m)):
+        pair = (m.winner[i], m.loser[i])
+        if pids is not None and pids.isdisjoint(pair):
+            continue
+        day = days.get(m.start[i])
+        if day is None:
+            day = days[m.start[i]] = date.fromisoformat(m.start[i]).toordinal()
+        for pid in pair:
+            if pid not in st and pids is not None:
+                continue
+            s = st[pid]
+            if s.ed != edition[i]:
+                if s.ed is not None:
+                    s.eds.append((s.start, s.n))
+                    if len(s.eds) > 12:
+                        s.eds.pop(0)
+                    if day - s.start > LAYOFF_DAYS:
+                        s.since_return = 0
+                    s.prev_start = s.start
+                s.ed, s.start, s.n = edition[i], day, 0
+        if m.status[i] in PLAYED:
+            for pid in pair:
+                if pid in st:
+                    st[pid].n += 1
+                    if st[pid].since_return < 99:
+                        st[pid].since_return += 1
+    return dict(st)
+
+
+def features_from_states(states: dict, dob: dict, queries: dict[int, tuple[int | None, int]]) -> dict[int, np.ndarray]:
+    """See features_at(). Does not modify states; a player not in states has no history."""
+    out = {}
+    for pid, (eid, day) in queries.items():
+        s = states.get(pid) or _P()
+        eds, since, prev, start = list(s.eds), s.since_return, s.prev_start, s.start
+        if eid is None or s.ed != eid:                       # enters a new edition
+            if s.ed is not None:
+                eds = (eds + [(s.start, s.n)])[-12:]
+                if day - s.start > LAYOFF_DAYS:
+                    since = 0
+                prev = s.start
+            start = day
+        c = np.zeros(K)
+        if since == 0:
+            c[0] = 1.0
+        elif 1 <= since <= 4:
+            c[1] = 1.0
+        if prev is not None:
+            gap = start - prev
+            c[2] = 1.0 if 28 < gap <= LAYOFF_DAYS else 0.0
+            c[3] = 1.0 if 0 < gap <= 7 else 0.0
+        c[4] = sum(k for d0, k in eds if 0 < start - d0 <= 28) / 5.0
+        try:
+            b = date.fromisoformat(dob[pid]).toordinal() if dob.get(pid) else None
+        except ValueError:
+            b = None
+        if b is not None:
+            age = (start - b) / 365.25
+            c[5:9] = max(0.0, 22 - age), max(0.0, 26 - age), max(0.0, age - 28), max(0.0, age - 32)
+        out[pid] = c
+    return out
+
+
 def attach(con: sqlite3.Connection, m, alias: str = "data") -> tuple[np.ndarray, np.ndarray]:
     """Context features aligned with m, cached on m.extra['context']."""
     if "context" in m.extra:

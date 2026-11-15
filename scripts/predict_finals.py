@@ -1,5 +1,5 @@
 """Predict the 2026 Nitto ATP Finals (Turin, indoor hard, best of 3, tiebreak sets) with a
-points_v1 run (default 605): replay the run over the full history in tennis.db, take each
+points_v1 run (default 605; context offsets applied when the run has them, e.g. 790): replay the run over the full history in tennis.db, take each
 player's state as of the event's start, compute every pairwise match probability with the
 Markov roll-up, apply the latest walk-forward ATP calibration alpha, then Monte-Carlo the
 round robin (ATP tiebreak rules approximated: wins, then head-to-head if two tied, then a
@@ -22,7 +22,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from tennis import calibrate, markov, models_db, points_rating, tuning  # noqa: E402
+from tennis import calibrate, context, markov, models_db, points_rating, tuning  # noqa: E402
 from tennis.matchup.data import fit_alpha  # noqa: E402
 
 START = "2026-11-15"
@@ -39,6 +39,51 @@ def fav_won(score: str) -> bool:
         x, y = s.strip("[]").split("-")
         won += int(x.rstrip("+")) > int(y.rstrip("+"))
     return won >= 2
+
+
+def context_at(m, edition, dob, pids, day: int) -> dict:
+    """context.FEATURES for each player entering a new edition starting on ordinal `day`,
+    replaying context.features()' per-player bookkeeping over all earlier matches."""
+    st = {pid: context._P() for pid in pids}
+    for i in range(len(m)):
+        pair = (m.winner[i], m.loser[i])
+        if pids.isdisjoint(pair):
+            continue
+        d0 = date.fromisoformat(m.start[i]).toordinal()
+        for pid in pair:
+            if pid not in st:
+                continue
+            s = st[pid]
+            if s.ed != edition[i]:
+                if s.ed is not None:
+                    s.eds.append((s.start, s.n))
+                    s.eds = s.eds[-12:]
+                    if d0 - s.start > context.LAYOFF_DAYS:
+                        s.since_return = 0
+                    s.prev_start = s.start
+                s.ed, s.start, s.n = edition[i], d0, 0
+            if m.status[i] in context.PLAYED:
+                s.n += 1
+                if s.since_return < 99:
+                    s.since_return += 1
+    out = {}
+    for pid, s in st.items():
+        s.eds.append((s.start, s.n))                         # finals = a new edition
+        if day - s.start > context.LAYOFF_DAYS:
+            s.since_return = 0
+        prev = s.start
+        c = np.zeros(context.K)
+        c[0] = float(s.since_return == 0)
+        c[1] = float(1 <= s.since_return <= 4)
+        gap = day - prev
+        c[2] = float(28 < gap <= context.LAYOFF_DAYS)
+        c[3] = float(0 < gap <= 7)
+        c[4] = sum(k for d0, k in s.eds if 0 < day - d0 <= 28) / 5.0
+        if dob.get(pid):
+            age = (day - date.fromisoformat(dob[pid]).toordinal()) / 365.25
+            c[5:9] = max(0, 22 - age), max(0, 26 - age), max(0, age - 28), max(0, age - 32)
+        out[pid] = c
+    return out
 
 
 def find_player(con, name: str) -> int:
@@ -70,12 +115,16 @@ def main(argv=None) -> int:
     names = [n for g in GROUPS.values() for n in g]
     pid = {n: find_player(con, n) for n in names}
     canon = dict(con.execute("SELECT player_id, canonical_name FROM data.player"))
+    edmap = dict(con.execute("SELECT match_id, edition_id FROM data.matches"))
+    dob = dict(con.execute("SELECT player_id, dob FROM data.player"))
     con.close()
 
     res = points_rating.run(m, params)
     st = res.state
     p = params
     day = date.fromisoformat(START).toordinal()
+    bs, br = params.context_betas("atp")
+    ctx = context_at(m, [edmap[x] for x in m.match_id], dob, set(pid.values()), day)         if params.has_context() else {i: np.zeros(context.K) for i in pid.values()}
 
     # calibration alpha as the walk-forward eval would set it for this quarter (ATP, 10 years)
     blk = "2026-10-01"
@@ -103,8 +152,9 @@ def main(argv=None) -> int:
     def prob(a, c):
         sa, ra, vsa, vra, dsa, dra, dvsa, dvra = part(pid[a])
         sc, rc, vsc, vrc, dsc, drc, dvsc, dvrc = part(pid[c])
-        xa = b + sa - rc + p.blend * (dsa - drc)
-        xb = b + sc - ra + p.blend * (dsc - dra)
+        ca, cc = ctx[pid[a]], ctx[pid[c]]
+        xa = b + sa - rc + p.blend * (dsa - drc) + ca @ bs - cc @ br
+        xb = b + sc - ra + p.blend * (dsc - dra) + cc @ bs - ca @ br
         va = vsa + vrc + p.blend * (dvsa + dvrc)
         vb = vsc + vra + p.blend * (dvsc + dvra)
         pr, da, db = g.lookup_array(np.array([xa]), np.array([xb]), grad=True)
@@ -128,7 +178,8 @@ def main(argv=None) -> int:
         players.append({"name": n, "db_name": canon[i], "matches": st.count.get(i, 0),
                         "last_match": date.fromordinal(st.last[i]).isoformat(),
                         "overall": s + r, "hard": s + r + ds + dr, "serve": s + ds, "return": r + dr,
-                        "sd": math.sqrt(vs + vr)})
+                        "sd": math.sqrt(vs + vr), "context": dict(zip(context.FEATURES, ctx[i].tolist())),
+                        "ctx_serve": float(ctx[i] @ bs), "ctx_return": float(ctx[i] @ br)})
 
     # Monte Carlo
     rng = np.random.default_rng(20261115)

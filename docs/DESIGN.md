@@ -149,6 +149,18 @@ Code: `src/tennis/elo.py` (engine), `src/tennis/evaluate.py` (scoring), `src/ten
   | test 2022-26 | tour_wta | 0.6058 | 0.6032 | 0.0026 |
 
   Test accuracy 66.2% (tour), Brier 0.2106. **Run 132 is the current baseline** the heavy and light layers must beat; calibration unchanged (~3 points overconfident).
+- **Sackmann / Tennis Abstract reference (sweep `sackmann-elo`, 2026-11-15):** `elo_v1` at the published, untuned settings: FiveThirtyEight K = 250/(n+5)^0.4 and a 50/50 overall/surface blend (Sackmann, "An Introduction to Tennis Elo", Tennis Abstract blog, 2019). Run 792 = overall Elo (blend 0), **run 793 = hElo-style blend 0.5**. Not reproduced: his absence penalty, his lower start (~1200) for Challenger/ITF newcomers, and his match set (we update on every level). So this is his method on our data, not his published numbers (no per-match archive exists). Test 2022-26, tour-level, 23,269 matches (`compare_runs.py 793 792 132 187 694 790`, delta vs 793 calibrated):
+
+  | Run | Raw | Calibrated | Delta (cal) | ATP cal | WTA cal |
+  |---|---|---|---|---|---|
+  | 792 Sackmann overall Elo | 0.6116 | 0.6099 | +0.0028 ± 0.0009 | 0.6143 | 0.6051 |
+  | **793 Sackmann surface-blend Elo** | 0.6080 | **0.6071** | 0 | 0.6105 | 0.6034 |
+  | 132 surface Elo, tuned | 0.6081 | 0.6059 | -0.0012 ± 0.0004 | 0.6097 | 0.6018 |
+  | 187 Glicko-2 | 0.6053 | 0.6047 | -0.0024 ± 0.0006 | 0.6086 | 0.6005 |
+  | 694 points_v1 + score tier | 0.5970 | 0.5968 | -0.0103 ± 0.0011 | 0.5991 | 0.5943 |
+  | 790 points_v1 + context | 0.5947 | **0.5944** | **-0.0127 ± 0.0012** (18/20 quarters) | 0.5958 | 0.5929 |
+
+  Val 2019-21 (tour): 793 0.6060, 792 0.6105. Raw 793 is overconfident on ATP (slope 0.86) and about right on WTA (0.98).
 - **Standings:** `scripts/elo_ratings.py [--as-of DATE] [--run ID] [--tour] [--surface]` replays a run's parameters over editions starting strictly before the date and lists ratings after each player's last match, highest first (per tour; by default 10+ rated matches and active in the prior year).
 - **Recording:** each setting is a `model_run` row in `models.db` (params, sweep id, data build, git commit) with `run_metric` rows per block x scope. `finalize --save-predictions` writes per-match `prediction` and `pre_match_rating` rows for that run.
 

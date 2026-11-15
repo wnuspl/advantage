@@ -375,6 +375,7 @@ class PointsResult:
     vb_s: np.ndarray
     fmt: np.ndarray
     state: "PointsState | None" = None
+    snapshots: list | None = None   # run(snap_before=...): PointsState before each listed index
 
 
 @dataclass
@@ -433,7 +434,10 @@ def predict(res: PointsResult, p: PointsParams) -> array:
     return array("d", out.tolist())
 
 
-def run(m, p: PointsParams) -> PointsResult:
+def run(m, p: PointsParams, snap_before: list[int] | None = None) -> PointsResult:
+    """snap_before: sorted match indices; out.snapshots gets a copy of the state just
+    before each (an index >= len(m) snapshots the final state). One pass gives
+    standings at many dates (scripts/eoy_serve_return.py)."""
     d: PointsData = m.extra["points"]
     n = len(m)
     floats = lambda: array("d", bytes(8 * n))                   # noqa: E731
@@ -474,7 +478,17 @@ def run(m, p: PointsParams) -> PointsResult:
     else:
         OA = OB = rusty = None
 
+    snaps, snap_i = list(snap_before or ()), 0
+
+    def snapshot():
+        return PointsState(p, dict(S), dict(R), dict(VS), dict(VR), dict(LAST), dict(CNT),
+                           dict(DS), dict(DR), dict(DVS), dict(DVR), dict(SLAST), dict(SCNT), dict(base))
+
+    out.snapshots = []
     for i in range(n):
+        while snap_i < len(snaps) and snaps[snap_i] <= i:
+            out.snapshots.append(snapshot())
+            snap_i += 1
         start = m.start[i]
         day = days.get(start)
         if day is None:
@@ -692,6 +706,9 @@ def run(m, p: PointsParams) -> PointsResult:
             DS[kl], DR[kl], DVS[kl], DVR[kl], SLAST[kl] = dsl, drl, dvsl, dvrl, day
             SCNT[kw], SCNT[kl] = SCNT.get(kw, 0) + 1, SCNT.get(kl, 0) + 1
 
+    while snap_i < len(snaps):
+        out.snapshots.append(snapshot())
+        snap_i += 1
     pw = predict(out, p)
     out.p_winner = pw
     out.state = PointsState(p, S, R, VS, VR, LAST, CNT, DS, DR, DVS, DVR, SLAST, SCNT, base)
@@ -737,3 +754,61 @@ def win_probability(state: PointsState, xa: float, xb: float, va: float, vb: flo
     """P(A wins) exactly as the model predicts it (Markov roll-up + uncertainty shrink)."""
     pr, da, db = markov.grid(best_of, final).lookup_array(np.array([xa]), np.array([xb]), grad=True)
     return float(_shrink(pr, da, db, np.array([va]), np.array([vb]), state.params.unc)[0])
+
+
+# Variance of a player's serve-point logit for one match around the pre-match rating,
+# beyond the rating's own variance v: today's form, conditions, rating error the
+# variance misses. Fit on in-play outcomes, not taken from the rating model's obs_var
+# (0.003 in run 790, tuned for pre-match ratings): scripts/inplay_form_test.py chose
+# 0.02 on 2011-18 set-end predictions; it beat obs_var on 2019-21 (-0.0106 vs -0.0072
+# log loss vs score only) and 2022-26 (-0.0130 vs -0.0076). Within a match the shared
+# serve deviation measured 0.039 logit^2, ~90% of it persisting first half -> second.
+IN_PLAY_FORM_VAR = 0.02
+
+
+def in_match_form(x: float, v: float, won: int, played: int,
+                  form_var: float = IN_PLAY_FORM_VAR) -> tuple[float, float]:
+    """Update one serve-point logit on the serve points played so far in this match.
+
+    The serve-point logit for THIS match is x_match = x + e, e ~ N(0, form_var), shared
+    by every point of the match, so its prior is N(x, v + form_var), and the points so
+    far are a binomial observation of it. Posterior mode by Newton's method (run()'s
+    single Kalman step is its first iteration), posterior variance
+        P1 = 1 / (1 / P0 + n p (1 - p))   at the mode.
+    Returns (x', v'): v' scales the rating variance v by P1 / P0, so with no points
+    played it returns (x, v) and the prediction equals the pre-match one."""
+    if played <= 0:
+        return x, v
+    p0 = v + form_var
+    m = x
+    for _ in range(50):
+        p = 1 / (1 + math.exp(-m))
+        g = (won - played * p) - (m - x) / p0            # d log posterior / dm
+        h = played * p * (1 - p) + 1 / p0                # minus the second derivative
+        m += g / h
+        if abs(g / h) < 1e-12:
+            break
+    p = 1 / (1 + math.exp(-m))
+    p1 = 1 / (1 / p0 + played * p * (1 - p))
+    return m, v * p1 / p0
+
+
+def in_play_probability(state: PointsState, xa: float, xb: float, va: float, vb: float,
+                        best_of: int, final: str, score: dict, a_serving: bool,
+                        deciding_tb_points: int = 7, h: float = 1e-3) -> float:
+    """P(A wins) from a live score (markov.parse_live / match_from keywords), with the
+    model's uncertainty shrink (gradient by central differences). At 0-0 this is
+    win_probability() up to the grid's interpolation error. Not calibrated or validated
+    on in-play outcomes."""
+    sig = lambda x: 1 / (1 + math.exp(-x))                     # noqa: E731
+
+    def f(a, b):
+        return markov.match_from(sig(a), sig(b), best_of, final, a_serving=a_serving,
+                                 deciding_tb_points=deciding_tb_points, **score)
+    pr = f(xa, xb)
+    if pr <= 0 or pr >= 1:
+        return pr
+    da = (f(xa + h, xb) - f(xa - h, xb)) / (2 * h)
+    db = (f(xa, xb + h) - f(xa, xb - h)) / (2 * h)
+    return float(_shrink(np.array([pr]), np.array([da]), np.array([db]),
+                         np.array([va]), np.array([vb]), state.params.unc)[0])

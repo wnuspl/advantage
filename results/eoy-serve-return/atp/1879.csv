@@ -1,0 +1,2 @@
+rank,player_id,player,country,age,overall,serve,return,serve_sd,return_sd,serve_pts_won,return_pts_won,hard_serve,hard_return,clay_serve,clay_return,grass_serve,grass_return,overall_neutral,serve_neutral,return_neutral,matches,stat_matches,last_event_start
+1,13938,Lestocq Robert Erskine,GBR,22.3,0.5276,0.206,0.3217,0.1167,0.1087,60.2,39.8,,,,,0.2094,0.3506,0.3051,0.0483,0.2568,10,0,1879-07-07

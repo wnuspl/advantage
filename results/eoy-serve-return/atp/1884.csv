@@ -1,0 +1,7 @@
+rank,player_id,player,country,age,overall,serve,return,serve_sd,return_sd,serve_pts_won,return_pts_won,hard_serve,hard_return,clay_serve,clay_return,grass_serve,grass_return,overall_neutral,serve_neutral,return_neutral,matches,stat_matches,last_event_start
+1,14000,William Charles Renshaw,GBR,24.0,0.9011,0.2779,0.6232,0.117,0.1139,59.5,49.5,,,,,0.3052,0.7058,0.779,0.1914,0.5876,13,0,1884-07-05
+2,14644,Richard Dudley Sears,USA,23.2,0.6963,0.2234,0.4729,0.1236,0.1136,58.2,45.8,,,,,0.237,0.5347,0.5256,0.1025,0.4231,15,0,1884-08-01
+3,13977,Ernest Renshaw,GBR,24.0,0.6405,0.1532,0.4873,0.0976,0.0898,56.5,46.1,,,,,0.161,0.5556,0.5183,0.0667,0.4517,22,0,1884-07-05
+4,13952,Herbert Fortescue Lawford,GBR,33.6,0.63,0.0936,0.5364,0.1003,0.0948,55.0,47.3,,,,,0.1268,0.6327,0.8128,0.1837,0.6291,26,0,1884-07-05
+5,13944,George Arnulph Montgomerie,GBR,36.8,0.2413,-0.1258,0.3671,0.1307,0.1282,49.6,43.1,,,,,-0.1209,0.4284,0.5393,0.0451,0.4943,11,0,1884-07-05
+6,16919,Richard Field Conover,USA,26.1,0.1014,0.0556,0.0458,0.1225,0.1221,54.1,35.5,,,,,0.0611,0.0501,0.1014,0.0556,0.0458,10,0,1884-08-01

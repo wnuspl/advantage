@@ -1,0 +1,7 @@
+rank,player_id,player,country,age,overall,serve,return,serve_sd,return_sd,serve_pts_won,return_pts_won,hard_serve,hard_return,clay_serve,clay_return,grass_serve,grass_return,overall_neutral,serve_neutral,return_neutral,matches,stat_matches,last_event_start
+1,14000,William Charles Renshaw,GBR,22.0,0.9844,0.3361,0.6482,0.1071,0.1022,58.0,47.7,,,,,0.3598,0.729,0.7448,0.1686,0.5762,11,0,1882-07-08
+2,13977,Ernest Renshaw,GBR,22.0,0.8406,0.2852,0.5554,0.0979,0.0963,56.8,45.4,,,,,0.3039,0.6314,0.601,0.1176,0.4834,13,0,1882-07-08
+3,14658,Richard Taswell Richardson,GBR,30.4,0.8332,0.192,0.6412,0.1035,0.0959,54.5,47.6,,,,,0.223,0.7394,0.9073,0.2214,0.6859,13,0,1882-07-08
+4,14644,Richard Dudley Sears,USA,21.1,0.7019,0.2688,0.4331,0.1145,0.1076,56.4,42.4,,,,,0.2881,0.4791,0.4642,0.1469,0.3173,10,0,1882-08-30
+5,13952,Herbert Fortescue Lawford,GBR,31.6,0.618,0.1099,0.5081,0.097,0.092,52.4,44.3,,,,,0.1378,0.5945,0.7309,0.1548,0.5762,20,0,1882-07-08
+6,13999,Otway Edward Woodhouse,GBR,27.2,0.5303,0.0616,0.4687,0.1077,0.1024,51.2,43.3,,,,,0.0672,0.53,0.5303,0.0616,0.4687,14,0,1882-07-08
