@@ -1,34 +1,31 @@
 # Archive
 
-Finished work kept as history, not part of the live engine. Nothing here is imported by `src/`.
+Finished work kept as history. The live project (`src/`, `scripts/`, `tests/`) never imports from here. What comes back, and when, is listed in `docs/PLAN.md`.
 
 ## v1: pre-match research (2026-11-13 to 2026-11-15)
 
-Everything that produced runs 132-790: the Elo/Glicko baselines, style/matchup/phase
-experiments (negative), points_v1 + score tier + context offsets (run 790, the baseline the
-reboot starts from), in-play form test, Kalshi edges.
+Everything that produced runs 132-790: Elo/Glicko-2 baselines, style/matchup/phase experiments (negative), points_v1 + score tier + context offsets (run 790, the reboot's baseline), the in-play form test, Kalshi edges.
 
 | Path | What |
 |---|---|
-| `v1/CLAUDE.md` | Project instructions as of the end of v1: full findings and milestone log 1-11 |
-| `v1/scripts/` | All research and model scripts (sweep, compare_runs, context_fit, kalshi_edges, predict_match, ...) |
-| `v1/results/`, `v1/reports/` | Their JSON/CSV outputs and figures |
-| `v1/docs/` | Research reports (composite, context, matchup, style, odds benchmark) |
+| `v1/CLAUDE.md` | Project instructions at the end of v1: all findings, milestone log 1-11 |
+| `v1/src/tennis/` | Research and v1 tooling modules: elo, glicko2, ratingmodels, tuning, evaluate, calibrate, composite(_eval), matchup/, style_features, heavy, phase, standings, mcp_notation, odds, xlsx_lite |
+| `v1/scripts/` | All research and model scripts (sweep, compare_runs, context_fit, kalshi_edges, predict_match, inplay_form_test, ingest_daily, ...) |
+| `v1/tests/` | Tests of the archived modules and scripts |
+| `v1/results/`, `v1/reports/`, `v1/docs/` | Outputs, figures, research reports |
+| `v1/models/` | Fitted artifacts and caches (style, matchup, phase, odds, inplay, kalshi incl. `live_*.jsonl` watch logs). Gitignored, 154 MB |
 | `v1/*_SPEC.md` | The original heavy/middle layer specs |
 
-The archived scripts still run from the project root, against the live `tennis.db`,
-`models.db` and `src/tennis/`, and write outputs into `archive/v1/`:
+## Running archived code
+
+`archive/v1/src/tennis/` merges into the live `tennis` package (`pkgutil.extend_path`), so archived code sees archived modules and live ones (`points_rating`, `markov`, `context`, `matches`, ...) under one name, with nothing copied. Scripts and tests put `archive/v1/src` first on `sys.path` themselves. From the project root:
 
 ```
 python archive/v1/scripts/compare_runs.py 694 790
 python archive/v1/scripts/kalshi_edges.py --run 790
+cd archive/v1/tests; python -m unittest discover -s .
 ```
 
-(`ROOT` in each script is the project root; `ARCHIVE` is `archive/v1`.)
-
-**The library stayed in `src/tennis/`.** The research modules (`elo`, `glicko2`, `ratingmodels`,
-`tuning`, `composite_eval`, `matchup/`, `style_features`, `heavy`, ...) are still imported by the
-model core (`points_rating`, `calibrate`), so they were not moved. They are cut loose as the
-engine takes over (see the plan in `CLAUDE.md`); then they move here.
+In the scripts, `ROOT` is the project root (tennis.db, models.db, data/, src/) and `ARCHIVE` is `archive/v1` (outputs, models/). Archived code runs against the *live* core, so if a later milestone changes `points_rating` or `context`, v1 numbers may no longer reproduce from here; the stored runs in `models.db` remain the record.
 
 `models.db` is never rebuilt: all v1 runs stay in it and stay the comparison baselines.

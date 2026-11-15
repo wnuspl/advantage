@@ -48,6 +48,7 @@ from pathlib import Path
 ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
 ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ARCHIVE / "src"))   # archived modules, merged into tennis
 
 import numpy as np   # noqa: E402
 

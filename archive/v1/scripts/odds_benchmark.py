@@ -28,6 +28,7 @@ import numpy as np
 ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
 ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ARCHIVE / "src"))   # archived modules, merged into tennis
 
 from tennis import models_db, odds                       # noqa: E402
 from tennis.composite_eval import metrics                # noqa: E402
@@ -41,7 +42,7 @@ def main() -> None:
     ap.add_argument("--runs", default="132,187,203,207")
     ap.add_argument("--from", dest="date_from", default="2022-01-01")
     ap.add_argument("--to", dest="date_to", default="2026-12-31")
-    ap.add_argument("--out", default=str(ROOT / "models/odds/benchmark.json"))
+    ap.add_argument("--out", default=str(ARCHIVE / "models/odds/benchmark.json"))
     a = ap.parse_args()
     runs = [int(x) for x in a.runs.split(",")]
 

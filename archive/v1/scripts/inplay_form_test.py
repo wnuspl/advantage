@@ -42,6 +42,7 @@ import numpy as np
 ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
 ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ARCHIVE / "src"))   # archived modules, merged into tennis
 
 from tennis import models_db, points_rating, tuning  # noqa: E402
 
@@ -55,7 +56,7 @@ def sig(x):
 
 def load_prematch(con, run: int, rebuild: bool):
     """Per-match pre-match arrays from the replay (cached in models/inplay/)."""
-    path = ROOT / "models" / "inplay" / f"prematch_run{run}.npz"
+    path = ARCHIVE / "models" / "inplay" / f"prematch_run{run}.npz"
     prep = tuning.prepare(con)
     m = prep.m
     if path.exists() and not rebuild:

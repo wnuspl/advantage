@@ -6,7 +6,7 @@
 Start point: **run 790** (`points_v1` + context offsets), tour-level test 2022-26 log loss **0.5944** (calibrated Glicko-2 0.6045). How it works, exactly as coded: `docs/REBOOT.md` section 3. The v1 history (runs 132-790, milestones 1-11, all findings) is in `archive/v1/CLAUDE.md`; see `archive/README.md`.
 
 ## Plan
-See `docs/PLAN.md` (milestones for the reboot).
+`docs/PLAN.md`: milestones as a list of what gets added back to the blank project (tracks A model, B Kalshi). The project restarted blank on the data layer; v1 code comes back only when a milestone needs it, rewritten against the engine rather than copied.
 
 ## Model (kept from v1; parameters get re-tuned)
 - **Ratings:** per player serve rating `s` and return rating `r`, per (player, surface) deviations, Kalman variances; updated on serve points won (stats), else set scores, else the result. Walkovers/unfinished never update; retirements count fully (`retired_weight` 1).
@@ -62,7 +62,7 @@ All Sackmann-derived data is **CC BY-NC-SA 4.0**: attribution required, non-comm
 ## Environment and conventions
 - **Windows / PowerShell.** Use `curl.exe`, not `curl`. Open files with `encoding="utf-8"` (player names have accents). Use `pathlib`. No `sqlite3` CLI: use Python's `sqlite3` module.
 - Python 3.12+. venv at project root (`.venv`, gitignored); `pip install -r requirements.txt` (numpy, scikit-learn).
-- Layout: `src/tennis/` (data layer + model core), `src/tennis/engine/` (live engine), `scripts/` (data-layer scripts; engine CLIs as they're built), `tests/` with small fixtures in `tests/fixtures/` (never test on full data), `archive/` (finished work). `data/raw/`, `tennis.db`, `models.db`, `models/` are gitignored.
+- Layout: `src/tennis/` (data layer; `matches.py` match table; model core `points_rating`, `context`, `markov`; `kalshi.py` client), `src/tennis/engine/` (live engine), `scripts/` (data-layer scripts; engine CLIs as they're built), `tests/` with small fixtures in `tests/fixtures/` (never test on full data), `archive/` (finished work; see `archive/README.md`). Live code never imports from `archive/`. `data/raw/`, `tennis.db`, `models.db`, `models/` are gitignored.
 - Tests: `python -m unittest discover -s tests` (standard library; no pytest).
 - Ask before downloading large datasets or adding dependencies. Standard library where reasonable.
 - Verify before trusting: never assume CSV column names, ID formats or API field structure. Read the real data first, then write the loader.

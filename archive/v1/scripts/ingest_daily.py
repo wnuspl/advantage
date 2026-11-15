@@ -38,7 +38,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[3]      # project root (archived script)
 DEFAULT_CONFIG = ROOT / "data" / "daily_feed.json"
 DB_PATH = ROOT / "tennis.db"
 RAW_DIR = ROOT / "data" / "raw" / "daily"

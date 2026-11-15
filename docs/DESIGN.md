@@ -2,7 +2,7 @@
 
 Companion to `schema.sql` (SQLite, validated on 3.45). Requires SQLite 3.37+ for `STRICT` tables and generated columns.
 
-> **Reboot (2026-11-15):** research and model scripts moved to `archive/v1/scripts/` (run them as `python archive/v1/scripts/<name>.py`); the data-layer scripts (`build_db`, `init_db`, `fetch_data`, `fetch_acesapi`, `export_review`, `ingest_daily`) stay in `scripts/`. Paths like `scripts/sweep.py` below refer to the archive. See `archive/README.md` and `docs/REBOOT.md`.
+> **Reboot (2026-11-15):** research and model code moved to `archive/v1/` (scripts, and the modules elo, glicko2, tuning, calibrate, matchup, style, phase, ...); the data layer stays in `src/tennis/` and `scripts/` (`build_db`, `init_db`, `fetch_data`, `fetch_acesapi`, `export_review`). The match loader moved from `elo.py` to `matches.py`. Paths like `scripts/sweep.py` or `elo.load_matches` below refer to v1; see `archive/README.md` and `docs/PLAN.md`.
 
 ## Purpose
 

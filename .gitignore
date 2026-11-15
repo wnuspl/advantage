@@ -13,3 +13,6 @@ models/
 # Secrets
 .env
 .env.*
+
+# archived v1 model artifacts (large, regenerable)
+archive/v1/models/

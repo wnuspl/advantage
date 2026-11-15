@@ -56,6 +56,7 @@ import numpy as np
 ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
 ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ARCHIVE / "src"))   # archived modules, merged into tennis
 
 from tennis import calibrate, context, kalshi, markov, models_db, points_rating, tuning  # noqa: E402
 from tennis.normalize import norm_name  # noqa: E402
@@ -217,8 +218,8 @@ class Pricer:
                 "live_state": ls}
 
 
-CACHE_DIR = ROOT / "models" / "kalshi"
-CODE = ("points_rating.py", "context.py", "elo.py", "markov.py", "calibrate.py", "tuning.py")
+CACHE_DIR = ARCHIVE / "models" / "kalshi"
+CODE = ("points_rating.py", "context.py", "matches.py", "elo.py", "markov.py", "calibrate.py", "tuning.py")
 
 
 def cache_key(con, run: int, params, today: str) -> str:
@@ -231,7 +232,7 @@ def cache_key(con, run: int, params, today: str) -> str:
     h.update(repr(con.execute("SELECT COUNT(*), MAX(player_id), TOTAL(LENGTH(dob)) FROM data.player").fetchone()).encode())
     h.update(repr(con.execute("SELECT COUNT(*), TOTAL(LENGTH(sha256)) FROM data.ingest_snapshot").fetchone()).encode())
     for f in CODE:
-        h.update((ROOT / "src" / "tennis" / f).read_bytes())
+        h.update(next(p for p in (ROOT / "src" / "tennis" / f, ARCHIVE / "src" / "tennis" / f) if p.exists()).read_bytes())
     h.update(json.dumps(vars(params), sort_keys=True, default=str).encode())
     d = date.fromisoformat(today)
     h.update(f"{run} {d.year}Q{(d.month - 1) // 3}".encode())
@@ -486,7 +487,7 @@ def main(argv=None) -> int:
         for t, why in skipped:
             print(f"  {t:40} {why}")
 
-    out_dir = ROOT / "models" / "kalshi"
+    out_dir = ARCHIVE / "models" / "kalshi"
     out_dir.mkdir(parents=True, exist_ok=True)
     report = {"as_of": now.isoformat(), "run": args.run, "alphas": alphas, "bankroll": args.bankroll,
               "kelly": args.kelly, "model_weight": args.model_weight, "fee_rate": args.fee_rate,

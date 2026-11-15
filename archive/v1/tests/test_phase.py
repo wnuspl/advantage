@@ -4,7 +4,11 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+# archived test: archive src first (merges with the live tennis package), then live src,
+# live tests (test_build.Workspace), archived scripts, this folder
+_A = Path(__file__).resolve().parents[1]
+for _p in (_A.parents[1] / "tests", _A.parents[1] / "src", _A / "scripts", _A / "tests", _A / "src"):
+    sys.path.insert(0, str(_p))
 
 from tennis import phase  # noqa: E402
 from tennis.mcp_notation import parse_point  # noqa: E402

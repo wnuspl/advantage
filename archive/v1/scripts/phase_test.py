@@ -32,12 +32,13 @@ import numpy as np
 ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
 ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ARCHIVE / "src"))   # archived modules, merged into tennis
 
 from tennis import calibrate, composite_eval, markov, phase, points_rating, ratingmodels, tuning  # noqa: E402
 
 DATA_DB = ROOT / "tennis.db"
 MODELS_DB = ROOT / "models.db"
-CACHE = ROOT / "models" / "phase"
+CACHE = ARCHIVE / "models" / "phase"
 MIN_PTS = 300
 START = "2011-01-01"
 PERIODS = [("2015-01-01", "2018-12-31"), ("2019-01-01", "2022-12-31"), ("2023-01-01", "2026-12-31")]

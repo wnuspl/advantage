@@ -2,7 +2,7 @@
 
 Written 2026-11-15. This is the starting point for the next phase. It does three things:
 
-> Paths: since the archive move (same day), the v1 scripts named here live in `archive/v1/scripts/`; library modules are unchanged in `src/tennis/`.
+> Paths: since the archive move (same day), v1 scripts and research modules named here live in `archive/v1/`; `points_rating`, `context`, `markov`, `kalshi` stay in `src/tennis/`. The milestone plan that supersedes section 7 is `docs/PLAN.md`.
 
 1. Records how the best model so far (**run 790**, `points_v1` + context offsets) works, exactly as the code does it, so it can be rebuilt or re-tuned without re-reading the history.
 2. Says what stays (the data layer) and what gets reset (model parameters, scripts, caching).

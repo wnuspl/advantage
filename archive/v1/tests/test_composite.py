@@ -11,8 +11,11 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# archived test: archive src first (merges with the live tennis package), then live src,
+# live tests (test_build.Workspace), archived scripts, this folder
+_A = Path(__file__).resolve().parents[1]
+for _p in (_A.parents[1] / "tests", _A.parents[1] / "src", _A / "scripts", _A / "tests", _A / "src"):
+    sys.path.insert(0, str(_p))
 
 from tennis import composite, composite_eval, glicko2, heavy, models_db   # noqa: E402
 from tennis.matchup import data, harness                                  # noqa: E402
