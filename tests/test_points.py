@@ -157,6 +157,25 @@ class PointsModelTest(unittest.TestCase):
         # uncertainty shrinks toward 0.5
         self.assertLess(pr.predict(res, self.P)[2], pr.predict(res, pr.PointsParams(unc=0.0))[2])
 
+    def test_blackout_hides_stats_from_the_date_only(self):
+        rows = [(1, 2, "2020-01-06", "completed", "hard", 60, 48, 60, 33),
+                (1, 2, "2021-01-04", "completed", "hard", 60, 30, 60, 50),
+                (3, 4, "2021-02-01", "completed", "hard", 60, 40, 60, 38)]
+        m = make(rows)
+        d = m.extra["points"]
+        b = pr.blackout(m, d, "2021-01-04")
+        self.assertEqual(list(b.w_sp), [60, -1, -1])
+        self.assertEqual(list(b.l_sw), [33, -1, -1])
+        self.assertEqual(list(d.w_sp), [60, 60, 60])          # original untouched
+        full = pr.run(m, self.P)
+        m.extra["points"] = b
+        dark = pr.run(m, self.P)
+        # identical before the blackout (pre-match predictions of matches 0 and 1)
+        self.assertEqual(list(full.p_winner[:2]), list(dark.p_winner[:2]))
+        # after it, the winner of match 1 gains from the result instead of losing on points
+        self.assertGreater(dark.state.serve[1] + dark.state.ret[1],
+                           full.state.serve[1] + full.state.ret[1])
+
     def test_variance_grows_with_inactivity_and_is_capped(self):
         rows = [(1, 2, "2020-01-06", "completed", "hard", 60, 45, 60, 36),
                 (1, 3, "2020-02-03", "completed", "hard", 60, 45, 60, 36),
@@ -202,3 +221,70 @@ class CalibrateTest(unittest.TestCase):
             pw2[i] = 0.99
         _, _, _, alphas2 = calibrate.calibrated(prep, pw2, "2021-01-01", "2021-01-31")
         self.assertEqual(alphas[("atp", "2021-01-01")], alphas2[("atp", "2021-01-01")])
+
+
+class ScoreTierTest(unittest.TestCase):
+    def test_parse_score(self):
+        ps = pr.parse_score
+        self.assertEqual(ps("6-0 6-0", 3, "tb", "completed"), ((0, 0), (0, 0)))
+        self.assertEqual(ps("7-6(5) 6-7(3) 7-6(8)", 3, "tb", "completed"), ((0, 6), (0, 13), (0, 6)))
+        self.assertEqual(ps("6-3 3-6 10-7", 3, "mtb", "completed"), ((0, 3), (0, 10), (2, 0)))
+        self.assertEqual(ps("6-4 3-6 6-7(5) 6-3 12-10", 5, "adv", "completed"),
+                         ((0, 4), (0, 10), (0, 13), (0, 3), (1, 6)))
+        # retirement: completed sets kept, the set in progress dropped
+        self.assertEqual(ps("6-4 2-1 RET", 3, "tb", "retired"), ((0, 4),))
+        self.assertEqual(ps("6-2 2-0 ret.", 3, "tb", "retired"), ((0, 2),))
+        self.assertIsNone(ps("3-2 RET", 3, "tb", "retired"))
+        # unusable: not complete sets, wrong winner, unknown tokens, too many sets
+        self.assertIsNone(ps("6-5 6-3", 3, "tb", "completed"))
+        self.assertIsNone(ps("3-6 4-6", 3, "tb", "completed"))
+        self.assertIsNone(ps("W/O", 3, "tb", "walkover"))
+        self.assertIsNone(ps("6-3 6-3 Played and unfinished", 3, "tb", "completed"))
+        self.assertIsNone(ps("8-6 6-3", 3, "tb", "completed"))       # 8-6 is not a tiebreak set
+        self.assertIsNone(ps(None, 3, "tb", "completed"))
+
+    def test_set_score_distribution(self):
+        for f in ("tb", "adv"):
+            d = markov.set_score_dist(0.66, 0.61, f)
+            self.assertAlmostEqual(sum(d), 1.0)
+            self.assertAlmostEqual(sum(d[:7]), markov.set_(0.66, 0.61, f))
+        g = markov.score_grid("tb")
+        xa, xb, h = markov.logit(0.66), markov.logit(0.61), 1e-5
+        for c in (0, 3, 6, 11):
+            p, da, db = g.lookup(xa, xb, c)
+            exact = lambda a, b: markov.set_score_dist(1 / (1 + np.exp(-a)), 1 / (1 + np.exp(-b)))[c]  # noqa: E731
+            self.assertAlmostEqual(p, exact(xa, xb), delta=2e-4)
+            self.assertAlmostEqual(da, (exact(xa + h, xb) - exact(xa - h, xb)) / (2 * h), delta=0.01)
+            self.assertAlmostEqual(db, (exact(xa, xb + h) - exact(xa, xb - h)) / (2 * h), delta=0.01)
+
+    def run_scored(self, score, w=1.0):
+        rows = [(1, 2, "2020-01-06", "completed", "hard", -1, -1, -1, -1)]
+        m = make(rows)
+        m.extra["scores"] = [pr.parse_score(score, 3, "tb", "completed")]
+        return pr.run(m, pr.PointsParams(score_weight=w)).state
+
+    def test_score_tier_scales_with_the_margin(self):
+        blowout = self.run_scored("6-0 6-0")
+        close = self.run_scored("7-6(5) 6-7(3) 7-6(8)")
+        gain = lambda st: st.serve[1] + st.ret[1]          # noqa: E731
+        self.assertGreater(gain(close), 0)
+        self.assertGreater(gain(blowout), 2 * gain(close))
+        # expected (Fisher) information: depends on the sets played, not the margin
+        self.assertLess(close.vs[1], blowout.vs[1])
+        # a close match says both served well: serve up, return down for both, nearly
+        self.assertGreater(close.serve[2], blowout.serve[2])
+
+    def test_score_weight_zero_is_result_only(self):
+        rows = [(1, 2, "2020-01-06", "completed", "hard", -1, -1, -1, -1),
+                (1, 2, "2020-02-03", "completed", "hard", -1, -1, -1, -1)]
+        m = make(rows)
+        plain = pr.run(m, pr.PointsParams())
+        m.extra["scores"] = [pr.parse_score("6-0 6-0", 3, "tb", "completed")] * 2
+        self.assertEqual(list(plain.p_winner), list(pr.run(m, pr.PointsParams()).p_winner))
+        scored = pr.run(m, pr.PointsParams(score_weight=1.0))
+        self.assertGreater(scored.p_winner[1], plain.p_winner[1])
+        # stats still take precedence over the score
+        m2 = make([(1, 2, "2020-01-06", "completed", "hard", 60, 30, 60, 50)])
+        m2.extra["scores"] = [pr.parse_score("6-0 6-0", 3, "tb", "completed")]
+        self.assertEqual(pr.run(m2, pr.PointsParams(score_weight=1.0)).state.serve,
+                         pr.run(m2, pr.PointsParams()).state.serve)

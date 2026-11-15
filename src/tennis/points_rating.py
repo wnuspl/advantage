@@ -22,12 +22,21 @@ Updates, from the pre-match state:
   Kalman update of the four terms in x (independent, as in Glicko):
       S = sum(v_j) + R / w,   theta_j += sign_j v_j z / S,   v_j -= v_j^2 / S
   The two observations (A serving, B serving) involve disjoint terms. b moves by base_lr * z.
-- **Result only** (no stats, e.g. before 1991, WTA before ~2010, most lower levels,
+- **Result only** (no stats and no usable score, or score_weight = 0; e.g. before 1991, WTA before ~2010, most lower levels,
   AcesAPI): extended Kalman update on the Bernoulli result with the Markov gradient H_j:
       S = sum(H_j^2 v_j) + P (1 - P) / w,   theta_j += v_j H_j (y - P) / S,
       v_j -= v_j^2 H_j^2 / S
   w = nostat_weight. With stats, the same result update runs afterwards with weight
   result_weight (0 = points only).
+- **Score** (no stats, but a usable score; score_weight > 0): Newton step on the
+  log-likelihood of the set scores (markov.set_score_dist: 6-0..7-6 per set, advantage
+  sets, match tiebreaks), summed over who served the first set (later sets follow from
+  game parity). With prior covariance V = diag(var x_A, var x_B) and Fisher information
+  I of the sets (markov.ScoreGrid, averaged over the first server):
+      delta_x = (V^-1 + w I)^-1 w grad log L,   w = score_weight
+  spread over the four terms of each x in proportion to their variances. Replaces the
+  result update for those matches (the score implies the result). parse_score() decides
+  usability; retirements keep their completed sets.
 - Retirements scale w by retired_weight (0 skips them); walkovers and unfinished matches
   never update.
 
@@ -74,7 +83,9 @@ class PointsParams:
     result_weight: float = 0.0    # weight of the extra result update when there are stats
     retired_weight: float = 1.0   # weight multiplier for retirements; 0 = ignore them
     base_lr: float = 0.0005       # learning rate of the (tour, surface) base logit
-    blend: float = 1.0            # prediction: multiplier on the surface deviations
+    score_weight: float = 0.0     # weight of the score update when there are no stats
+                                  # (0 = off: result-only fallback, as in run 605)
+    blend: float = 1.0           # prediction: multiplier on the surface deviations
     unc: float = 1.0              # prediction: uncertainty shrink (0 = off)
     # registry compatibility (standings, Elo/Glicko-style fields); unused here
     init: float = 0.0
@@ -101,6 +112,61 @@ class PointsData:
 
 
 _SET = re.compile(r"^\[?(\d+)-(\d+)\]?(\(\d+\))?$")
+_END_MARKS = {"RET", "ret.", "DEF", "Def.", "W/O", "w/o", "ABD", "abandoned"}
+# set types for the score tier: 0 = tiebreak set, 1 = advantage set, 2 = match tiebreak
+_FINAL_TYPE = {"tb": 0, "adv": 1, "tb12": 1, "mtb": 2}
+
+
+def _set_category(a: int, b: int, typ: int) -> int | None:
+    """markov.SET_CATS category of a set the match winner scored a-b (None: not a
+    complete set of that type). Type 2 (match tiebreak): 0 = winner took it, 1 = lost it."""
+    if typ == 2:
+        if (max(a, b) >= 10 and abs(a - b) >= 2) or (max(a, b), min(a, b)) == (1, 0):
+            return 0 if a > b else 1
+        return None
+    hi, lo = max(a, b), min(a, b)
+    if hi == 6 and lo <= 4:
+        c = lo
+    elif (hi, lo) == (7, 5):
+        c = 5
+    elif typ == 0 and (hi, lo) == (7, 6):
+        c = 6
+    elif typ == 1 and hi >= 8 and hi - lo == 2:
+        c = 6
+    else:
+        return None
+    return c if a > b else markov.mirror(c)
+
+
+def parse_score(score: str | None, best_of: int, final: str, status: str) -> tuple | None:
+    """Sets of a winner-first score as ((type, category), ...) for the score tier, or None
+    when the score cannot be used (missing, unknown format, inconsistent with the result).
+    Sets before the deciding one are tiebreak sets; the deciding set follows `final`.
+    Retirements keep their completed sets and drop the unfinished last one."""
+    if not score:
+        return None
+    toks = score.split()
+    while toks and toks[-1] in _END_MARKS:
+        toks.pop()
+    out = []
+    for k, t in enumerate(toks):
+        mt = _SET.match(t)
+        if not mt:
+            return None
+        typ = _FINAL_TYPE[final] if k == best_of - 1 else 0
+        c = _set_category(int(mt.group(1)), int(mt.group(2)), typ)
+        if c is None:
+            if status == "retired" and k == len(toks) - 1:
+                break                            # the set in progress at the retirement
+            return None
+        out.append((typ, c))
+    if not out or len(out) > best_of:
+        return None
+    if status == "completed":
+        won = sum(1 for typ, c in out if (c == 0 if typ == 2 else c < 7))
+        if won != best_of // 2 + 1 or len(out) - won >= won:
+            return None
+    return tuple(out)
 
 
 def deciding_set_evidence(score: str | None, best_of: int | None) -> str | None:
@@ -156,8 +222,11 @@ def infer_rules(rows) -> tuple[dict, dict]:
 
 
 def attach(con: sqlite3.Connection, m, alias: str = "data") -> PointsData:
-    """Load best-of, deciding-set rule and serve stats aligned with `m` (cached on m.extra)."""
+    """Load best-of, deciding-set rule and serve stats aligned with `m` (cached on m.extra),
+    and the parsed scores for the score tier (m.extra['scores'])."""
     if "points" in m.extra:
+        if "scores" not in m.extra:
+            attach_scores(con, m, alias)
         return m.extra["points"]
     rule, counts = infer_rules(con.execute(
         f"""SELECT m.edition_id, e.tournament_id, e.start_date, m.score, m.best_of
@@ -184,7 +253,32 @@ def attach(con: sqlite3.Connection, m, alias: str = "data") -> PointsData:
             d.w_sp[i], d.w_sw[i] = st[1]
             d.l_sp[i], d.l_sw[i] = st[0]
     m.extra["points"] = d
+    attach_scores(con, m, alias)
     return d
+
+
+def attach_scores(con: sqlite3.Connection, m, alias: str = "data") -> list:
+    """Parsed scores aligned with `m` (parse_score per match; None = not usable), using the
+    formats already in m.extra['points']. Kept apart from PointsData so blackout() leaves
+    scores in place: hiding stats leaves the score tier to do the work."""
+    d = m.extra["points"]
+    raw = dict(con.execute(f"SELECT match_id, score FROM {alias}.matches"))
+    out = [parse_score(raw.get(mid), *FORMATS[d.fmt[i]], m.status[i])
+           for i, mid in enumerate(m.match_id)]
+    m.extra["scores"] = out
+    return out
+
+
+def blackout(m, d: PointsData, after: str) -> PointsData:
+    """Copy of d with serve stats removed for every match whose event starts on or after
+    `after` (ISO date), so those matches take the no-stats update. Simulates losing the
+    stats source on that date (the stats blackout test)."""
+    out = PointsData(bytearray(d.fmt), array("l", d.w_sp), array("l", d.w_sw),
+                     array("l", d.l_sp), array("l", d.l_sw), d.rule_counts)
+    for i, start in enumerate(m.start):
+        if start >= after:
+            out.w_sp[i] = out.w_sw[i] = out.l_sp[i] = out.l_sw[i] = -1
+    return out
 
 
 # ---------------------------------------------------------------------------- model
@@ -286,6 +380,14 @@ def run(m, p: PointsParams) -> PointsResult:
     days: dict[str, int] = {}
     w_sp, w_sw, l_sp, l_sw = d.w_sp, d.w_sw, d.l_sp, d.l_sw
     sig = lambda x: 1.0 / (1.0 + math.exp(-x))                   # noqa: E731
+    scw = p.score_weight
+    scores = m.extra.get("scores") if scw > 0.0 else None
+    if scw > 0.0 and scores is None:
+        raise ValueError("score_weight > 0 needs parsed scores: call attach() first")
+    sgrids = (markov.score_grid("tb"), markov.score_grid("adv"))
+    mtb = markov.grid(1, "mtb") if scw > 0.0 else None
+    odd = (markov.CAT_GAMES_ODD, markov.CAT_GAMES_ODD_ADV)
+    log = math.log
 
     for i in range(n):
         start = m.start[i]
@@ -387,6 +489,81 @@ def run(m, p: PointsParams) -> PointsResult:
             if rweight > 0.0:
                 xa = b + sw_ - rl_ + dsw - drl
                 xb = b + sl_ - rw_ + dsl - drw
+        elif scores is not None and scores[i] is not None:
+            # score tier: Newton step on the log-likelihood of the set scores (winner = A),
+            # summed over who served first in set 1; Fisher information from the set tables
+            rweight = 0.0
+            sets = scores[i]
+            iaa = iab = ibb = 0.0
+            for typ, c in sets:
+                if typ == 2:
+                    pm, dpa, dpb = mtb.lookup(xa, xb)
+                    pm = min(max(pm, 1e-9), 1 - 1e-9)
+                    v_ = pm * (1 - pm)
+                    iaa += dpa * dpa / v_
+                    iab += dpa * dpb / v_
+                    ibb += dpb * dpb / v_
+                else:
+                    e1, e2, e3 = sgrids[typ].information(xa, xb)
+                    iaa += e1
+                    iab += e2
+                    ibb += e3
+            lps, gas, gbs = [], [], []
+            for first_a in (True, False):
+                lp = gsa = gsb = 0.0
+                a_serves = first_a
+                for typ, c in sets:
+                    if typ == 2:
+                        pm, dpa, dpb = mtb.lookup(xa, xb)
+                        if c == 0:
+                            pp, g1, g2 = pm, dpa, dpb
+                        else:
+                            pp, g1, g2 = 1 - pm, -dpa, -dpb
+                    else:
+                        if a_serves:
+                            pp, g1, g2 = sgrids[typ].lookup(xa, xb, c)
+                        else:
+                            pp, g2, g1 = sgrids[typ].lookup(xb, xa, markov.mirror(c))
+                        if odd[typ][c]:
+                            a_serves = not a_serves
+                    pp = max(pp, 1e-300)
+                    lp += log(pp)
+                    gsa += g1 / pp
+                    gsb += g2 / pp
+                lps.append(lp)
+                gas.append(gsa)
+                gbs.append(gsb)
+            mx = max(lps)
+            w0, w1 = math.exp(lps[0] - mx), math.exp(lps[1] - mx)
+            gsa = (w0 * gas[0] + w1 * gas[1]) / (w0 + w1)
+            gsb = (w0 * gbs[0] + w1 * gbs[1]) / (w0 + w1)
+            sw8 = scw * weight
+            va = vsw + dvsw + vrl + dvrl
+            vb = vsl + dvsl + vrw + dvrw
+            a11, a12, a22 = 1.0 / va + sw8 * iaa, sw8 * iab, 1.0 / vb + sw8 * ibb
+            det = a11 * a22 - a12 * a12
+            c11, c12, c22 = a22 / det, -a12 / det, a11 / det
+            dxa = sw8 * (c11 * gsa + c12 * gsb)
+            dxb = sw8 * (c12 * gsa + c22 * gsb)
+            # spread the change in x_a over its four terms in proportion to their variances
+            fa, fb = dxa / va, dxb / vb
+            sw_ += vsw * fa
+            dsw += dvsw * fa
+            rl_ -= vrl * fa
+            drl -= dvrl * fa
+            sl_ += vsl * fb
+            dsl += dvsl * fb
+            rw_ -= vrw * fb
+            drw -= dvrw * fb
+            ra, rb = (va - c11) / (va * va), (vb - c22) / (vb * vb)
+            vsw -= vsw * vsw * ra
+            dvsw -= dvsw * dvsw * ra
+            vrl -= vrl * vrl * ra
+            dvrl -= dvrl * dvrl * ra
+            vsl -= vsl * vsl * rb
+            dvsl -= dvsl * dvsl * rb
+            vrw -= vrw * vrw * rb
+            dvrw -= dvrw * dvrw * rb
         else:
             rweight = nsw * weight
         if rweight > 0.0:
