@@ -3,8 +3,10 @@
     python scripts/matchup.py run                                  # every model, both tours
     python scripts/matchup.py run --models glicko bilinear --tours atp --test-from 2024-01-01
     python scripts/matchup.py run --no-save                        # print + report only
+    python scripts/matchup.py run --models glicko siamese --base-run 605 --alpha-rows tour         --test-from 2019-01-01 --test-to 2021-12-31 --report docs/matchup_points_val.md   # 10b
 
-Needs tennis.db, the Glicko-2 run (default 187) in models.db, and heavy-layer fits
+Needs tennis.db, the base rating run (default Glicko-2 run 187; any ratingmodels run, e.g.
+points_v1 605) in models.db, and heavy-layer fits
 (scripts/style_fit.py fit). Saves one model_run per model (sweep_id = the run tag),
 per-fold bundles under models/matchup/, and writes docs/matchup_report.md.
 """
@@ -37,7 +39,7 @@ def cmd_run(args) -> int:
                                 heavy_config=hcfg.config_hash)
     t0 = time.perf_counter()
     table = data.load_table(con, cfg.glicko_run_id)
-    print(f"match table: {len(table):,} scored matches, Glicko-2 run {cfg.glicko_run_id} "
+    print(f"match table: {len(table):,} scored matches, base {table.base_model_id} run {cfg.glicko_run_id} "
           f"({time.perf_counter() - t0:.0f}s)")
     t0 = time.perf_counter()
     src = data.load_style_source(con, hcfg)
@@ -70,13 +72,14 @@ def main(argv=None) -> int:
     r = sub.add_parser("run")
     r.add_argument("--models", dest="model_list", nargs="+", default=list(MODEL_NAMES), choices=MODEL_NAMES)
     r.add_argument("--tours", nargs="+", default=["atp", "wta"], choices=["atp", "wta"])
-    r.add_argument("--glicko-run", type=int, default=187)
+    r.add_argument("--base-run", "--glicko-run", dest="glicko_run", type=int, default=187,
+                   help="rating run giving the base logit (Glicko-2 187, points_v1 605, ...)")
     r.add_argument("--test-from", default="2022-01-01")
     r.add_argument("--test-to", default="2026-12-31")
     r.add_argument("--step-months", type=int, default=3)
     r.add_argument("--val-months", type=int, default=6)
     r.add_argument("--alpha-years", type=int, default=10)
-    r.add_argument("--alpha-rows", choices=["train", "scope"], default="train")
+    r.add_argument("--alpha-rows", choices=["train", "scope", "tour"], default="train")
     r.add_argument("--train-scope", choices=["all", "tour"], default="all")
     r.add_argument("--min-charted", type=int, default=10)
     r.add_argument("--tag", help="sweep_id for the saved runs")

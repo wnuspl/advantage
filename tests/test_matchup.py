@@ -198,6 +198,49 @@ class TestBuildTable(unittest.TestCase):
         np.testing.assert_array_equal(t.surface, [0, 0])            # carpet -> hard
 
 
+class TestPointsBase(unittest.TestCase):
+    """Milestone 10b: a points_v1 run as the base logit instead of Glicko-2."""
+
+    def test_points_run_probabilities_feed_the_table(self):
+        from array import array
+        from tennis import points_rating as pr, ratingmodels
+        m = elo.empty_matches()
+        d = pr.PointsData(bytearray(), array("l"), array("l"), array("l"), array("l"), {})
+        rows = [(1, 2, "2020-01-06", 60, 48, 60, 33), (2, 1, "2020-02-03", 60, 40, 60, 42),
+                (1, 3, "2020-03-02", -1, -1, -1, -1), (3, 2, "2020-04-06", 60, 45, 60, 36)]
+        for i, (w, l, st, *sp) in enumerate(rows):
+            m.match_id.append(i + 1); m.winner.append(w); m.loser.append(l); m.start.append(st)
+            m.status.append("completed"); m.surface.append("hard"); m.tour.append("atp"); m.tour_level.append(1)
+            d.fmt.append(pr.FORMAT_INDEX[(3, "tb")])
+            for a, v in zip((d.w_sp, d.w_sw, d.l_sp, d.l_sw), sp):
+                a.append(v)
+        m.extra["points"] = d
+        spec, params = ratingmodels.get("points_v1"), pr.PointsParams(blend=0.7, unc=5.0)
+        pw = data.base_p_winner(spec, params, m)
+        expect = pr.predict(pr.run(m, params), params)
+        np.testing.assert_allclose(list(pw), list(expect))
+        pkey = {1: "a", 2: "b", 3: "c"}
+        flag = bytearray(1 if pkey[w] < pkey[l] else 0 for w, l in zip(m.winner, m.loser))
+        t = data.build_table(m, pw, flag, pkey, glicko_run_id=605, base_model_id="points_v1")
+        self.assertEqual(t.base_model_id, "points_v1")
+        p1 = np.where(t.y == 1, np.asarray(expect), 1 - np.asarray(expect))
+        np.testing.assert_allclose(data.sigmoid(t.glicko_logit), p1, atol=1e-9)
+
+    def test_alpha_rows_tour_uses_only_tour_level_rows(self):
+        t, src = world()
+        t.tour_level = t.tour_level.copy()
+        t.tour_level[::2] = False                          # half the matches below tour level
+        cfg = harness.HarnessConfig(**{**HARNESS.as_dict(), "tours": ("atp",), "alpha_rows": "tour"})
+        f = harness.make_folds(t, src, cfg, log=lambda *_: None)[0]
+        lo = harness.add_months(f.cutoff, -12 * cfg.alpha_years)
+        sel = (t.tour == "atp") & t.tour_level & (t.date < f.cutoff) & (t.date >= lo)
+        self.assertEqual(f.n_alpha, int(sel.sum()))
+        self.assertEqual(f.alpha, data.fit_alpha(t.glicko_logit[sel], t.y[sel]))
+        # run() keeps that alpha (only alpha_rows='train' refits it on the training rows)
+        r = harness.run(t, src, cfg, ["glicko"], log=lambda *_: None, keep_models=False)
+        self.assertEqual(r.folds[0].alpha, f.alpha)
+
+
 class TestHarness(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

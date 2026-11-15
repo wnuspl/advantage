@@ -3,9 +3,11 @@
 Orientation: p1 is the player with the smaller stable key (same rule as evaluate.py), never
 the winner. y = 1 if p1 won.
 
-glicko_logit: logit of the light layer's pre-match P(p1 wins) from a frozen Glicko-2 run
-(default run 187), i.e. the Glicko-2 expected-score formula with both RDs and the surface
-blend. Recomputed from the run's parameters (deterministic), never modified.
+glicko_logit: logit of the base model's pre-match P(p1 wins) from a frozen rating run,
+recomputed from the run's parameters (deterministic), never modified. Historically always
+Glicko-2 (default run 187: expected-score formula with both RDs and the surface blend);
+since milestone 10b any model in ratingmodels can be the base (e.g. points_v1 run 605).
+The field keeps its old name; MatchTable.base_model_id says which model it is.
 
 Style vectors come from the heavy layer's fitted objects (heavy.StyleModel, heavy.Fit), not
 from its tables. Within one fold every vector is projected through ONE fit per side
@@ -23,7 +25,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .. import elo, glicko2, heavy, models_db, tuning
+from .. import elo, heavy, models_db, tuning
 from ..style_features import SIDES
 
 SURFACES = ("hard", "clay", "grass")          # carpet folds into hard; unknown -> all zeros
@@ -43,9 +45,10 @@ class MatchTable:
     p1: np.ndarray              # tennis.db player_id, smaller stable key
     p2: np.ndarray
     y: np.ndarray               # 1.0 if p1 won
-    glicko_logit: np.ndarray    # pre-match logit P(p1 wins) from the light layer
+    glicko_logit: np.ndarray    # pre-match logit P(p1 wins) from the base rating run
     player_key: dict            # player_id -> stable key
-    glicko_run_id: int | None = None
+    glicko_run_id: int | None = None      # the base rating run (any model, despite the name)
+    base_model_id: str = "glicko2_v1"
 
     def __len__(self) -> int:
         return len(self.match_id)
@@ -57,7 +60,8 @@ def _logit(p: np.ndarray) -> np.ndarray:
 
 
 def build_table(m: elo.Matches, p_winner, winner_is_p1, player_key: dict,
-                best_of: dict | None = None, glicko_run_id: int | None = None) -> MatchTable:
+                best_of: dict | None = None, glicko_run_id: int | None = None,
+                base_model_id: str = "glicko2_v1") -> MatchTable:
     """Orient and filter the light layer's output. Pure: no database access."""
     keep = np.array([s in elo.SCORED_STATUS for s in m.status], dtype=bool)
     idx = np.flatnonzero(keep)
@@ -77,20 +81,29 @@ def build_table(m: elo.Matches, p_winner, winner_is_p1, player_key: dict,
         p1=np.where(flag, w, l), p2=np.where(flag, l, w),
         y=flag.astype(float),
         glicko_logit=_logit(np.where(flag, pw, 1.0 - pw)),
-        player_key=player_key, glicko_run_id=glicko_run_id)
+        player_key=player_key, glicko_run_id=glicko_run_id, base_model_id=base_model_id)
 
 
-def load_table(con: sqlite3.Connection, glicko_run_id: int = 187) -> MatchTable:
-    """Run the frozen Glicko-2 configuration of a recorded run and orient every match.
+def base_p_winner(spec, params, m: elo.Matches, con: sqlite3.Connection | None = None):
+    """P(actual winner wins) of a frozen rating run, replayed from its parameters.
+    Glicko-2 keeps the exact path of the original matchup runs (run's p_winner); other
+    models go through the registry's predict (as scripts/compare_runs.py does)."""
+    if spec.attach and con is not None:
+        spec.attach(con, m)
+    res = spec.run(m, params)
+    if spec.model_id == "glicko2_v1":
+        return res.p_winner
+    return spec.predict(res, params)
+
+
+def load_table(con: sqlite3.Connection, run_id: int = 187) -> MatchTable:
+    """Replay a recorded rating run (Glicko-2, points_v1, ...) and orient every match.
     tennis.db must be attached as 'data'."""
-    spec, params = tuning.model_of(con, glicko_run_id)
-    if spec.model_id != "glicko2_v1":
-        raise ValueError(f"run {glicko_run_id} is {spec.model_id}, expected a Glicko-2 run")
+    spec, params = tuning.model_of(con, run_id)        # raises unless a ratingmodels run
     prep = tuning.prepare(con)
-    res = glicko2.run(prep.m, params)
+    pw = base_p_winner(spec, params, prep.m, con)
     best_of = dict(con.execute("SELECT match_id, best_of FROM data.matches"))
-    return build_table(prep.m, res.p_winner, prep.winner_is_p1, prep.player_key, best_of,
-                       glicko_run_id)
+    return build_table(prep.m, pw, prep.winner_is_p1, prep.player_key, best_of, run_id, spec.model_id)
 
 
 # ------------------------------------------------------------------ style vectors
