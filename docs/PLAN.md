@@ -77,15 +77,26 @@ Done when: every open market is listed with model vs market, and tests run on sa
 - Kalshi labels namesakes "Cezar Cretu (b. 2001)"; the suffix is stripped before resolving (the year is not yet checked against dob).
 - `--predictor points [--run 790] [--raw]` uses A1's `PointsPredictor` (and its name resolver); `DbEditions` reuses A1's `editions.shared_edition`. On the 2026-11-15 23:14 pull: 41 priced, every Challenger player flagged stale (Challenger results end 2026-05-25).
 
+### B3a. Decisions on one snapshot
+Adds back (from `kalshi_edges.py`): blending, fractional Kelly over the book, fees, the stale-player refusal. New: per-match and total exposure caps, an in-play flag, and refusal of placeholder predictions. As `engine/decide.py`: `MarketSnapshot` + its books + a `Policy` -> a `Decision` (the bet, or why none). Pure: no network, no state. Shown in `scripts/live.py`.
+
+Why before B2: it needs only a B1 snapshot, and B2 records its output, so what B3b will need (full books, the decision and its reason) is fixed before recording starts.
+
+Done when: every priced snapshot gets a decision or a reason, on the saved fixture. Sanity tests: market-only weight places nothing; a predictor that echoes the market's fair price places nothing (spread + fees); `FixedPredictor` is refused as a placeholder. (The original test, "`FixedPredictor(0.5)` must place nothing", fails as stated: fully trusted, 0.5 against a 0.985 favourite is a large edge on the underdog.)
+
+**Built 2026-11-15:** `engine/decide.py` (`Policy`, `decide`, `decide_all`), decision column and policy flags in `scripts/live.py`, `tests/test_decide.py` (the three sanity tests, side choice, caps, refusals). `FixedPredictor` marks its predictions `detail['placeholder']`. On the 2026-11-15 23:14 pull with run 790 (defaults): 8 bets, $229 staked; 29 of 41 priced matches refused as stale (Challenger results end 2026-05-25). With `--allow-stale`, 27 bets and the total cap binds: the stale refusal is doing real work.
+
 ### B2. Watch loop + recorder
-Adds back (from `kalshi_edges.py --watch`): the polling loop, extended into an append-only store (proposed `live.db`, gitignored): snapshots, scores and predictions per poll, settled when markets finish. The v1 watch logs (`archive/v1/models/kalshi/live_*.jsonl`) can be imported as the first data.
+Adds back (from `kalshi_edges.py --watch`): the polling loop, extended into an append-only store (proposed `live.db`, gitignored): raw polls (full books, live data), predictions and B3a decisions per poll, settled when markets finish. The v1 watch logs (`archive/v1/models/kalshi/live_*.jsonl`) can be imported as the first data.
 
-Done when: a multi-hour watch runs unattended and answers "price, score and model at time t".
+Why before B3b: Kalshi's public API serves only the current book and score, so unrecorded days are lost; the sooner it records, the more history B3b and B5 have.
 
-### B3. Decision layer + paper ledger
-Adds back (from `kalshi_edges.py`): blending, fractional Kelly over the book, fees, the stale-player refusal. New: exposure caps, an in-play flag, and a paper ledger settled on results (P&L, closing-line value, log loss vs market).
+Done when: a multi-hour watch runs unattended and answers "price, score, model and decision at time t".
 
-Done when: a day of watching produces a ledger. As a sanity test, `FixedPredictor(0.5)` must place nothing.
+### B3b. Paper ledger
+New: a paper ledger replayed from B2's recordings: decide per poll (B3a), fill against the recorded book, track open exposure across polls, settle on the recorded result. P&L, closing-line value, log loss vs market. Because it replays, a policy or predictor change (e.g. `points_v2` after A3) is re-scored on the same matches without new watching.
+
+Done when: a day of recordings produces a ledger, and replaying it twice gives the same ledger.
 
 ### B4. Alerts
 New: a push notification when the decision layer fires (channel to decide; ntfy is the low-effort default).
@@ -100,9 +111,9 @@ Rankings at any date (from `eoy_serve_return.py`'s logic on A5 snapshots), the w
 Elo, Glicko-2 and their sweeps/standings (`elo`, `glicko2`, `ratingmodels`, `standings`, `sweep`, `ratings`, `eoy_ratings`, `elo_*`): their runs are in `models.db` as baselines. Style, matchup, phase, composite, heavy: measured negatives. One-off studies: `blackout_test`, `context_report`, `context_test`, `predict_finals`, `phase_test`.
 
 ## Order
-A1 and B1 first, in parallel (A1 is what makes B's numbers mean something). Then A2 -> A3 (the retrain) alongside B2 -> B3. Then A4, A5, B4, B5. Each milestone is one commit with tests passing.
+A1 and B1 first, in parallel (A1 is what makes B's numbers mean something). Then A2 -> A3 (the retrain) alongside B3a -> B2 -> B3b. Then A4, A5, B4, B5. Each milestone is one commit with tests passing.
 
 ## Open decisions
 - Alert channel (B4).
 - Live store: `live.db` proposed (B2).
-- Paper-ledger defaults (B3): 1/4 Kelly, $1000, as in v1, unless told otherwise.
+- Paper-ledger defaults (B3a/B3b): 1/4 Kelly, $1000, as in v1, unless told otherwise.

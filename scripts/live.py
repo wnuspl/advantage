@@ -1,13 +1,17 @@
-"""Open Kalshi tennis match markets vs a predictor (track B1, docs/PLAN.md). Read-only.
+"""Open Kalshi tennis match markets vs a predictor, and what the policy would bet
+(tracks B1 + B3a, docs/PLAN.md). Read-only: nothing here places orders.
 
     python scripts/live.py                                  # pull now, FixedPredictor(0.5)
     python scripts/live.py --pull data/raw/kalshi/20261115T223132Z   # reprice a saved pull, no network
+    python scripts/live.py --predictor points --bankroll 1000 --kelly 0.25 --model-weight 0.5
     python scripts/live.py --predictor fixed --fixed-p 0.6 --surface hard --json out.json
 
 Each poll is saved raw under data/raw/kalshi/<UTC>/ (events, milestones, live scores,
-order books). Every open match is listed: priced rows sorted by |model - market|, then
-the ones not priced, each with its reason. `--predictor points` is the run-790 /
-points_v2 predictor (engine/predict.py, `--run`, `--raw`).
+order books). Every open match is listed: priced rows sorted by |model - market|, each
+with the bet the policy would place or why it places none (engine/decide.py), then the
+ones not priced, each with its reason. `--predictor points` is the run-790 / points_v2
+predictor (engine/predict.py, `--run`, `--raw`). FixedPredictor is a placeholder and is
+never bet on.
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import kalshi                                         # noqa: E402
 from tennis.engine import FixedPredictor                          # noqa: E402
+from tennis.engine.decide import Policy, decide_all               # noqa: E402
 from tennis.engine.live import (RAW_KALSHI, DbEditions, fetch_pull, load_pull,   # noqa: E402
                                 parse_events, save_pull, snapshots)
 from tennis.engine.players import Resolver                        # noqa: E402
@@ -48,12 +53,26 @@ def main(argv=None) -> int:
     ap.add_argument("--series", default=",".join(kalshi.MATCH_SERIES))
     ap.add_argument("--pull", type=Path, help="reprice a saved pull folder instead of fetching")
     ap.add_argument("--surface", choices=["hard", "clay", "grass", "carpet"],
-                    help="when no running edition in tennis.db gives one (default: unknown)")
+                    help="when neither a running edition nor the tournament's history gives one (default: unknown)")
     ap.add_argument("--include-started", action="store_true",
                     help="price matches past their start time that have no live feed, as if pre-match")
+    pol = ap.add_argument_group("policy (engine/decide.py)")
+    pol.add_argument("--bankroll", type=float, default=Policy.bankroll, help="dollars")
+    pol.add_argument("--kelly", type=float, default=Policy.kelly, help="Kelly fraction (1 = full Kelly)")
+    pol.add_argument("--model-weight", type=float, default=Policy.model_weight,
+                     help="logit blend weight on the model (1 = model only, 0 = market only)")
+    pol.add_argument("--max-stake", type=float, default=None, help="cap per match, dollars")
+    pol.add_argument("--max-total", type=float, default=Policy.max_total,
+                     help="cap on summed stakes, fraction of bankroll (scaled down pro rata)")
+    pol.add_argument("--in-play-bets", action="store_true",
+                     help="bet on live matches too (off by default: the feed's lag behind the court is unknown)")
+    pol.add_argument("--allow-stale", action="store_true", help="bet even when a player's rating is stale")
     ap.add_argument("--data", type=Path, default=ROOT / "tennis.db")
-    ap.add_argument("--json", type=Path, help="also write every row as JSON here")
+    ap.add_argument("--json", type=Path, help="also write every row and decision as JSON here")
     args = ap.parse_args(argv)
+    policy = Policy(bankroll=args.bankroll, kelly=args.kelly, model_weight=args.model_weight,
+                    max_stake=args.max_stake, max_total=args.max_total, in_play=args.in_play_bets,
+                    allow_stale=args.allow_stale)
 
     if args.pull:
         pull = load_pull(args.pull)
@@ -74,20 +93,25 @@ def main(argv=None) -> int:
                          TournamentSurfaces.from_db(con))
     finally:
         con.close()
+    decisions = decide_all(rows, pull.books, policy)
+    dec = {d.event: d for d in decisions}
 
     priced = sorted((r for r in rows if not r.skip), key=lambda r: -abs(r.deviation or 0))
-    print(f"\npredictor {predictor.name}\n")
-    hdr = (f"{'match':38} {'start (UTC)':16} {'tour':4} {'surf':6} {'bo':>2} {'model':>6} {'mkt':>6} "
-           f"{'dev':>6} {'ask A':>5} {'ask B':>5}  score")
+    print(f"\npredictor {predictor.name}; bankroll ${policy.bankroll:,.0f}, {policy.kelly:g} Kelly, "
+          f"model weight {policy.model_weight:g}, in-play bets {'on' if policy.in_play else 'off'}\n")
+    hdr = (f"{'match':38} {'start (UTC)':16} {'surf':6} {'bo':>2} {'model':>6} {'mkt':>6} "
+           f"{'dev':>6} {'ask A':>5} {'ask B':>5}  {'decision':44} score")
     print(hdr)
     print("-" * len(hdr))
     for r in priced:
-        e = r.event
+        e, d = r.event, dec[r.event.event]
         start = "LIVE" if r.status == "live" else (e.start or "")[:16].replace("T", " ")
-        flag = " stale" if r.prediction.stale else ""
-        print(f"{(e.a.name + ' v ' + e.b.name)[:38]:38} {start:16} {e.tour:4} {(r.surface or '?')[:6]:6} "
+        sz = d.sizing
+        what = (f"BET {d.name[:16]} {sz.contracts} @{sz.avg_price:.2f} ${sz.cost:.0f} EV{sz.ev:+.2f}"
+                if d.bet else d.reason)
+        print(f"{(e.a.name + ' v ' + e.b.name)[:38]:38} {start:16} {(r.surface or '?')[:6]:6} "
               f"{r.best_of:2d} {r.p_model:6.3f} {fmt(r.p_market, '6.3f'):>6} {fmt(r.deviation, '+6.3f'):>6} "
-              f"{fmt(r.ask_a, '5.2f'):>5} {fmt(r.ask_b, '5.2f'):>5}  {r.live.raw if r.live else ''}{flag}")
+              f"{fmt(r.ask_a, '5.2f'):>5} {fmt(r.ask_b, '5.2f'):>5}  {what[:44]:44} {r.live.raw if r.live else ''}")
     surf = sorted({(r.event.tour, r.tournament, r.surface or '?', r.surface_from) for r in rows if r.day})
     if surf:
         print("\nsurfaces:")
@@ -105,10 +129,21 @@ def main(argv=None) -> int:
             print(f"  {r.event.title[:40]:40} {r.skip}")
         for et, why in rejected:
             print(f"  {et[:40]:40} {why}")
+    bets = [d for d in decisions if d.bet]
+    stake = sum(d.sizing.cost for d in bets)
+    reasons: dict[str, int] = {}
+    for d in decisions:
+        if not d.bet:
+            k = d.reason.split(":")[0]
+            reasons[k] = reasons.get(k, 0) + 1
     print(f"\n{len(priced)} priced, {len(skipped)} skipped, {len(rejected)} rejected events")
+    print(f"{len(bets)} bets, stake ${stake:,.2f} ({stake / policy.bankroll:.1%} of bankroll), "
+          f"EV ${sum(d.sizing.ev for d in bets):+,.2f} under the sizing probability; no bet: "
+          + (", ".join(f"{k} {n}" for k, n in sorted(reasons.items(), key=lambda t: -t[1])) or "none"))
     if args.json:
         args.json.write_text(json.dumps({"pull": pull.source, "as_of": pull.as_of, "predictor": predictor.name,
-                                         "rows": [r.to_json() for r in rows], "rejected": rejected},
+                                         "policy": vars(policy), "rows": [r.to_json() for r in rows],
+                                         "decisions": [d.to_json() for d in decisions], "rejected": rejected},
                                         indent=1, ensure_ascii=False), encoding="utf-8")
         print(f"json: {args.json}")
     return 0

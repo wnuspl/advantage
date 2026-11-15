@@ -63,4 +63,5 @@ class FixedPredictor:
         notes = ["placeholder predictor: not a model"]
         if query.live is not None:
             notes.append("live state ignored")
-        return Prediction(p_a=self.p_a, p_raw=self.p_a, in_play=False, model=self.name, notes=notes)
+        return Prediction(p_a=self.p_a, p_raw=self.p_a, in_play=False, model=self.name, notes=notes,
+                          detail={"placeholder": True})     # the decision layer never bets on it
