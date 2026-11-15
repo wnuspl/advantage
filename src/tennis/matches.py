@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sqlite3
 from array import array
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 
 # Tour-level main draws (verified against the level codes in tennis.db, 2026-11-13).
@@ -56,6 +56,22 @@ def load_matches(con: sqlite3.Connection, alias: str = "data") -> Matches:
         m.surface.append(surface)
         m.tour_level.append(1 if level in TOUR_LEVELS[tour] and not rnd.startswith("Q") else 0)
     return m
+
+
+SCOPES = ("tour", "tour_atp", "tour_wta", "all")
+
+
+def scope_indices(m: Matches, date_from: str, date_to: str, scope: str) -> list[int]:
+    """Indices of scored matches (SCORED_STATUS) whose edition starts in [date_from, date_to]
+    (ISO, inclusive) and that fall in `scope`: 'tour' (tour-level main draw), 'tour_atp',
+    'tour_wta' or 'all'. m.start is sorted, so the date window is two bisections."""
+    if scope not in SCOPES:
+        raise ValueError(f"unknown scope {scope!r}; one of {SCOPES}")
+    lo, hi = bisect_left(m.start, date_from), bisect_right(m.start, date_to)
+    tour = scope[5:] if scope.startswith("tour_") else None
+    st, tl, tr = m.status, m.tour_level, m.tour
+    return [i for i in range(lo, hi) if st[i] in SCORED_STATUS
+            and (scope == "all" or (tl[i] and (tour is None or tr[i] == tour)))]
 
 
 def until(m: Matches, as_of: str) -> Matches:

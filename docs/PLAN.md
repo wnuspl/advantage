@@ -16,6 +16,7 @@ The project restarts blank on top of the data layer. Everything else from v1 sit
 | Model core | `points_rating.py`, `context.py`, `markov.py` | Kept as is: the form of the model survives, its parameters get re-tuned |
 | Kalshi client | `kalshi.py` (endpoints, order books, live scores, fees, Kelly walk) | Kept; no model dependency |
 | Engine seam | `engine/predictor.py` (`Predictor`, `MatchQuery`, `Prediction`, `FixedPredictor`) | New |
+| Predictor (A1) | `calibrate.py`, `engine/predict.py` (`PointsPredictor`), `engine/players.py`, `engine/editions.py`, `scripts/predict.py` | Added 2026-11-15 |
 
 What it cannot do yet: calibrate, score a run, record a run, resolve a name, price a market, run a CLI. The milestones add those back.
 
@@ -29,6 +30,8 @@ Adds back:
 - **CLI** (from `predict_match.py`): `scripts/predict.py A B --tournament ... --date ... [--score ... --serve-pts ...]`.
 
 Done when: stored run-790 predictions are reproduced exactly on a sample, and in-play output matches v1 on the same inputs.
+
+**Done 2026-11-15.** Run 790 has no stored per-match predictions (val metrics only), so: a fresh replay reproduces run 790's stored val log loss in every scope (tour 0.5896388009) and run 694's 1,768,019 stored predictions (max |diff| 6e-17); `PointsPredictor` built from the state just before 12 sampled matches (val, test, all levels; new editions and later rounds) reproduces runs 790 and 694's walk-forward predictions (max |diff| 6e-16); in play equals the v1 `Pricer` arithmetic on the same inputs (6 states, 0 mismatches). The rewritten calibration gives val tour 0.590071 per tour (v1: 0.5901) and 0.589950 per (tour, best-of). Live alphas for 2026 Q4: ATP bo3 0.900, bo5 1.082; WTA 0.930. Cold replay ~5 min, cached load seconds (`models/engine/run790.pkl`, 35 MB). Deviation from v1 `kalshi_edges`: a match in a known edition is rated on the edition's start date (as `run()` does), not the match day. Calibration lives in `src/tennis/calibrate.py`; editions lookup (`engine/editions.py`, incl. `shared_edition` for B1) added alongside.
 
 ### A2. Training harness
 Adds back, as `src/tennis/train/` + `scripts/train.py`:
@@ -66,6 +69,12 @@ New, nothing from v1: save state and context bookkeeping at cutoffs (monthly sna
 Adds back (from `kalshi_edges.py`): event and order-book pulls, milestone/live-score mapping by competitor id, edition lookup for surface/best-of/rules, raw-pull saving, as `engine/live.py` + `scripts/live.py --predictor fixed|points`. Each market becomes a `MarketSnapshot` with a `MatchQuery` and the predictor's `Prediction`.
 
 Done when: every open market is listed with model vs market, and tests run on saved raw fixtures with no network.
+
+**Built 2026-11-15:** `engine/live.py` (`fetch_pull` / `save_pull` / `load_pull`, `snapshots()` -> `MarketSnapshot`), `scripts/live.py [--pull DIR] [--predictor fixed|points]`, `tests/test_live.py` on `tests/fixtures/kalshi/` (a real pull subset; network calls fail the tests). Notes:
+- Pulls now also save `milestones.json` and `pull.json`. Older pulls (before 2026-11-15 23:00) load without them; live data maps by the competitor-id pair either way, and a milestone whose pair disagrees with the markets is refused.
+- Best-of: milestone > running edition > men's slam by name > 3. Deciding set: the edition's inferred rule > 'tb'. Surface: edition > `--surface` > unknown (None). New events (ATP Finals before its first result in tennis.db, every Challenger: AcesAPI has none) have no edition, so surface is unknown there; the predictor must handle `surface=None`.
+- Kalshi labels namesakes "Cezar Cretu (b. 2001)"; the suffix is stripped before resolving (the year is not yet checked against dob).
+- `--predictor points` waits for A1's `engine/predict.py`.
 
 ### B2. Watch loop + recorder
 Adds back (from `kalshi_edges.py --watch`): the polling loop, extended into an append-only store (proposed `live.db`, gitignored): snapshots, scores and predictions per poll, settled when markets finish. The v1 watch logs (`archive/v1/models/kalshi/live_*.jsonl`) can be imported as the first data.

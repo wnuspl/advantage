@@ -46,7 +46,8 @@ BEFORE the roll-up. The adjusted x is used for the prediction and for every upda
 so a player who performs as their context predicts is not re-rated; the offset itself is
 never stored in the state. rust_weight scales the update weight of matches where either
 player is 1-5 matches back from a > 12-week break. All zero = runs 605/694 exactly.
-matchup() (live predictions) does not apply context yet.
+matchup() applies no context itself: engine/predict.py (PointsPredictor) adds it, and is
+the one place live predictions are made.
 
 Prediction (prediction-only parameters, scored from one pass):
     blend   multiplier on the surface deviations (and their variances); 1 = full model
