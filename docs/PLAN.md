@@ -72,9 +72,10 @@ Done when: every open market is listed with model vs market, and tests run on sa
 
 **Built 2026-11-15:** `engine/live.py` (`fetch_pull` / `save_pull` / `load_pull`, `snapshots()` -> `MarketSnapshot`), `scripts/live.py [--pull DIR] [--predictor fixed|points]`, `tests/test_live.py` on `tests/fixtures/kalshi/` (a real pull subset; network calls fail the tests). Notes:
 - Pulls now also save `milestones.json` and `pull.json`. Older pulls (before 2026-11-15 23:00) load without them; live data maps by the competitor-id pair either way, and a milestone whose pair disagrees with the markets is refused.
-- Best-of: milestone > running edition > men's slam by name > 3. Deciding set: the edition's inferred rule > 'tb'. Surface: edition > `--surface` > unknown (None). New events (ATP Finals before its first result in tennis.db, every Challenger: AcesAPI has none) have no edition, so surface is unknown there; the predictor must handle `surface=None`.
+- Best-of: milestone > running edition > men's slam by name > 3. Deciding set: the edition's inferred rule > 'tb'. Surface: running edition > tournament history > `--surface` > unknown (None).
+- Kalshi gives no surface anywhere (events, markets, milestones, live data, series and event metadata checked). `engine/surfaces.py` maps Kalshi's tournament name (milestone `tournament_name`, else the rules text) to tennis.db history: same-city Challenger/WTA 125 > same-city tour level (Metz 2026) > same-city ITF; season finals and tour events by name. The edition nearest in the calendar from the last 6 years wins. Every tournament in the 2026-11-15 pulls resolves.
 - Kalshi labels namesakes "Cezar Cretu (b. 2001)"; the suffix is stripped before resolving (the year is not yet checked against dob).
-- `--predictor points` waits for A1's `engine/predict.py`.
+- `--predictor points [--run 790] [--raw]` uses A1's `PointsPredictor` (and its name resolver); `DbEditions` reuses A1's `editions.shared_edition`. On the 2026-11-15 23:14 pull: 41 priced, every Challenger player flagged stale (Challenger results end 2026-05-25).
 
 ### B2. Watch loop + recorder
 Adds back (from `kalshi_edges.py --watch`): the polling loop, extended into an append-only store (proposed `live.db`, gitignored): snapshots, scores and predictions per poll, settled when markets finish. The v1 watch logs (`archive/v1/models/kalshi/live_*.jsonl`) can be imported as the first data.
