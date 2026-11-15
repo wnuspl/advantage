@@ -110,3 +110,24 @@ def decide_all(rows: list[MarketSnapshot], books: dict, pol: Policy) -> list[Dec
                     d.side = d.name = None
                     d.reason = "scaled to zero by the total cap"
     return out
+
+
+def add_policy_args(ap) -> None:
+    """Policy flags for an argparse parser (scripts/live.py, scripts/watch.py)."""
+    g = ap.add_argument_group("policy (engine/decide.py)")
+    g.add_argument("--bankroll", type=float, default=Policy.bankroll, help="dollars")
+    g.add_argument("--kelly", type=float, default=Policy.kelly, help="Kelly fraction (1 = full Kelly)")
+    g.add_argument("--model-weight", type=float, default=Policy.model_weight,
+                   help="logit blend weight on the model (1 = model only, 0 = market only)")
+    g.add_argument("--max-stake", type=float, default=None, help="cap per match, dollars")
+    g.add_argument("--max-total", type=float, default=Policy.max_total,
+                   help="cap on summed stakes, fraction of bankroll (scaled down pro rata)")
+    g.add_argument("--in-play-bets", action="store_true",
+                   help="bet on live matches too (off by default: the feed's lag behind the court is unknown)")
+    g.add_argument("--allow-stale", action="store_true", help="bet even when a player's rating is stale")
+
+
+def policy_from_args(args) -> Policy:
+    return Policy(bankroll=args.bankroll, kelly=args.kelly, model_weight=args.model_weight,
+                  max_stake=args.max_stake, max_total=args.max_total, in_play=args.in_play_bets,
+                  allow_stale=args.allow_stale)

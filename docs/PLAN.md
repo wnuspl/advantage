@@ -87,16 +87,32 @@ Done when: every priced snapshot gets a decision or a reason, on the saved fixtu
 **Built 2026-11-15:** `engine/decide.py` (`Policy`, `decide`, `decide_all`), decision column and policy flags in `scripts/live.py`, `tests/test_decide.py` (the three sanity tests, side choice, caps, refusals). `FixedPredictor` marks its predictions `detail['placeholder']`. On the 2026-11-15 23:14 pull with run 790 (defaults): 8 bets, $229 staked; 29 of 41 priced matches refused as stale (Challenger results end 2026-05-25). With `--allow-stale`, 27 bets and the total cap binds: the stale refusal is doing real work.
 
 ### B2. Watch loop + recorder
-Adds back (from `kalshi_edges.py --watch`): the polling loop, extended into an append-only store (proposed `live.db`, gitignored): raw polls (full books, live data), predictions and B3a decisions per poll, settled when markets finish. The v1 watch logs (`archive/v1/models/kalshi/live_*.jsonl`) can be imported as the first data.
+Adds back (from `kalshi_edges.py --watch`): the polling loop, extended into an append-only store (`live.db`, gitignored). Per poll:
+- **raw**: events, milestones, live data and full order books (compressed, deduplicated), so any poll can be reloaded as a B1 `Pull` and repriced or re-decided;
+- **snapshot**: price, score, prediction and B3a decision per match;
+- **tags** for diagnosing misses: each player's days since last rated match, how each name resolved, where the surface came from, in play or not, series (tour / Challenger), model - market gap;
+- **settlement**, when a market finishes: winner, Kalshi's market result, and how the match ended (`match_status`: completed / retired / walkover as Kalshi reports it) with the final score.
+
+Market sides are ordered by ticker, so A/B stays the same across polls. `player_id` is only valid for the tennis.db build of the watch (recorded per watch); names and competitor ids are the stable keys. The v1 watch logs (`archive/v1/models/kalshi/live_*.jsonl`) can be imported as the first data.
 
 Why before B3b: Kalshi's public API serves only the current book and score, so unrecorded days are lost; the sooner it records, the more history B3b and B5 have.
 
-Done when: a multi-hour watch runs unattended and answers "price, score, model and decision at time t".
+Done when: a multi-hour watch runs unattended and answers "price, score, model and decision at time t", and every match it saw is settled or still open.
+
+**Built 2026-11-15:** `live_schema.sql`, `engine/recorder.py` (`Recorder`: `record_poll`, `load_poll`, `to_settle` / `settle`, `at`, `counts`), `scripts/watch.py run|at|status`, `tests/test_recorder.py` (round trip and replay, blob dedup, tags, decisions, time-t query, settlement, one full `poll_once` offline). Shared setup moved to `live.load_predictor` / `live.Retriever` and `decide.add_policy_args`. Markets now ordered by ticker (A/B stable across polls). First real watch 2026-11-15: 44 open matches, ~4 s and ~40 KB per poll (~60 MB/day at 60 s); a match closed in the live feed waits until Kalshi determines its markets. Not yet done: the multi-hour unattended run (watch 2, started 2026-11-15 23:50 UTC, 8 h), the v1 log import.
 
 ### B3b. Paper ledger
-New: a paper ledger replayed from B2's recordings: decide per poll (B3a), fill against the recorded book, track open exposure across polls, settle on the recorded result. P&L, closing-line value, log loss vs market. Because it replays, a policy or predictor change (e.g. `points_v2` after A3) is re-scored on the same matches without new watching.
+New: a paper ledger replayed from B2's recordings: decide per poll (B3a), fill against the recorded book, track open exposure across polls, settle on the recorded result. Because it replays, a policy or predictor change (e.g. `points_v2` after A3) is re-scored on the same matches without new watching.
 
-Done when: a day of recordings produces a ledger, and replaying it twice gives the same ledger.
+Reports, built to say *what kind* of miss, not only *whether*:
+- **Who was right**: log loss of model vs market on every priced match (far more data than bets), and P&L on bets.
+- **Line movement** (closing-line value): the market price from each decision to the match start. Moving toward the model means the model saw something early; moving away means the market most likely had news (injury, withdrawal). Needs no result, so it reads per match.
+- **Splits by tag**: stale days, loose name resolution, surface from history vs edition, in play, Challenger vs tour, gap size. Losses concentrated in one tag point at that cause (missing results, wrong player, wrong surface); spread evenly, at the model itself.
+- **How it ended**: bets on the healthy-looking player lost to a retirement or walkover point at injuries the model cannot see.
+
+A single match stays ambiguous; conclusions come from patterns across many.
+
+Done when: a day of recordings produces a ledger with these reports, and replaying it twice gives the same ledger.
 
 ### B4. Alerts
 New: a push notification when the decision layer fires (channel to decide; ntfy is the low-effort default).
@@ -115,5 +131,5 @@ A1 and B1 first, in parallel (A1 is what makes B's numbers mean something). Then
 
 ## Open decisions
 - Alert channel (B4).
-- Live store: `live.db` proposed (B2).
+- Live store: `live.db` (B2), gitignored, never rebuilt (additive schema).
 - Paper-ledger defaults (B3a/B3b): 1/4 Kelly, $1000, as in v1, unless told otherwise.

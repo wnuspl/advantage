@@ -99,7 +99,8 @@ def parse_events(events: dict[str, list[dict]]) -> tuple[list[Event], list[tuple
             if tour is None:
                 rejected.append((et, f"unknown series {series}"))
                 continue
-            mk = [m for m in e.get("markets", []) if m.get("status") == "active"]
+            # A/B by ticker: stable across polls (the API's market order is not guaranteed)
+            mk = sorted((m for m in e.get("markets", []) if m.get("status") == "active"), key=lambda m: m["ticker"])
             if len(mk) != 2:
                 rejected.append((et, f"{len(mk)} active markets, expected 2"))
                 continue
@@ -129,14 +130,18 @@ class Pull:
     source: str = ""                              # folder it was loaded from / saved to
 
 
-def fetch_pull(series=kalshi.MATCH_SERIES, workers: int = WORKERS) -> Pull:
+def fetch_pull(series=kalshi.MATCH_SERIES, workers: int = WORKERS, known_milestones: dict | None = None) -> Pull:
     """One poll of Kalshi (public endpoints, no key). Books are fetched for every event
-    whose live status is not 'closed'."""
+    whose live status is not 'closed'. `known_milestones` (event -> milestone, e.g. from the
+    previous poll) are reused instead of re-requested; events without one are asked again."""
     as_of = datetime.now(timezone.utc).isoformat(timespec="seconds")
     raw = {s: kalshi.open_events(s) for s in series}
     evs, _ = parse_events(raw)
+    known = known_milestones or {}
+    ask = [e for e in evs if not known.get(e.event)]
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        ms = dict(zip([e.event for e in evs], pool.map(lambda e: kalshi.milestone(e.event), evs)))
+        fresh = dict(zip([e.event for e in ask], pool.map(lambda e: kalshi.milestone(e.event), ask)))
+    ms = {e.event: known.get(e.event) or fresh.get(e.event) for e in evs}
     live = kalshi.live_batch([m["id"] for m in ms.values() if m])
     pull = Pull(as_of, raw, ms, live)
     tickers = [s.ticker for e in evs if _status(_live_for(e, pull)[1]) != "closed" for s in (e.a, e.b)]
@@ -371,3 +376,35 @@ def snapshots(pull: Pull, predictor: Predictor, resolve: Callable[[str, str], tu
                              edition_id=s.edition_id, live=s.live)
         s.prediction = predictor.predict(s.query)
     return out
+
+
+# ---------------------------------------------------------------------------- setup
+
+def load_predictor(kind: str, *, fixed_p: float = 0.5, run: int = 790, raw: bool = False,
+                   data_path: Path | None = None, today: str | None = None) -> Predictor:
+    """'fixed' (placeholder) or 'points' (engine.predict.PointsPredictor of `run`)."""
+    if kind == "fixed":
+        from .predictor import FixedPredictor
+        return FixedPredictor(fixed_p)
+    from .predict import PointsPredictor
+    kw = {"data_path": data_path} if data_path else {}
+    return PointsPredictor.load(run, today=today, calibrated=not raw, **kw)
+
+
+class Retriever:
+    """Everything snapshots() needs besides the pull, built once from tennis.db (an open
+    read-only connection): the predictor, its name resolver (or one from tennis.db), the
+    running-edition lookup and the tournament surface history."""
+
+    def __init__(self, predictor: Predictor, con: sqlite3.Connection, today: str,
+                 surface: str | None = None, include_started: bool = False):
+        from .players import Resolver
+        self.predictor, self.con = predictor, con
+        self.surface, self.include_started = surface, include_started
+        self.resolve = getattr(predictor, "players", None) or Resolver.from_db(con, today, alias="main")
+        self.editions = DbEditions(con)
+        self.surfaces = TournamentSurfaces.from_db(con)
+
+    def __call__(self, pull: Pull) -> list[MarketSnapshot]:
+        return snapshots(pull, self.predictor, self.resolve, self.editions, self.surface,
+                         self.include_started, self.surfaces)

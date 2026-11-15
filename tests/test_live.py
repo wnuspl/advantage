@@ -151,7 +151,8 @@ class SnapshotTest(NoNetwork):
         self.assertTrue(gg.prediction.in_play)
         sh = r["KXATPCHALLENGERMATCH-26NOV15SHAMON"]             # past its start time, feed says not started
         self.assertEqual((sh.status, sh.skip), ("not_started", ""))
-        self.assertEqual(sh.event.b.resolved, "exact")           # "Montes-de la Torre"
+        mt = sh.event.a if sh.event.a.name.startswith("Inaki") else sh.event.b
+        self.assertEqual(mt.resolved, "exact")                    # "Montes-de la Torre"
         oc = r["KXATPCHALLENGERMATCH-26NOV15AGUOCO"]
         self.assertEqual(oc.event.b.resolved, "exact")           # "O'Connell" == "Oconnell"
         self.assertEqual(len(rec.queries), 6)
@@ -160,12 +161,12 @@ class SnapshotTest(NoNetwork):
         flipped = copy.deepcopy(self.pull)
         for e in flipped.events["KXATPCHALLENGERMATCH"]:
             e["markets"].reverse()
-        a = by_event(snapshots(self.pull, FixedPredictor(), resolver()))["KXATPCHALLENGERMATCH-26NOV15GOGGUR"]
-        b = by_event(snapshots(flipped, FixedPredictor(), resolver()))["KXATPCHALLENGERMATCH-26NOV15GOGGUR"]
-        self.assertEqual(a.event.a.name, b.event.b.name)
-        self.assertEqual((a.live.sets_a, a.live.games_a, a.live.pts_a), (b.live.sets_b, b.live.games_b, b.live.pts_b))
-        self.assertEqual(a.live.a_serving, not b.live.a_serving)
-        self.assertAlmostEqual(a.p_market, 1 - b.p_market)
+        for a, b in zip(snapshots(self.pull, FixedPredictor(), resolver()),
+                        snapshots(flipped, FixedPredictor(), resolver())):     # sides ordered by ticker
+            self.assertEqual(a.to_json(), b.to_json())
+            self.assertLess(a.event.a.ticker, a.event.b.ticker)
+        gg = by_event(snapshots(flipped, FixedPredictor(), resolver()))["KXATPCHALLENGERMATCH-26NOV15GOGGUR"]
+        self.assertEqual((gg.event.a.name, gg.live.sets_a, gg.live.games_a), ("Vignesh Gogineni", 1, 3))
 
     def test_closed_and_started_without_feed(self):
         pull = copy.deepcopy(self.pull)

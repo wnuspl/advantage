@@ -25,19 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import kalshi                                         # noqa: E402
-from tennis.engine import FixedPredictor                          # noqa: E402
-from tennis.engine.decide import Policy, decide_all               # noqa: E402
-from tennis.engine.live import (RAW_KALSHI, DbEditions, fetch_pull, load_pull,   # noqa: E402
-                                parse_events, save_pull, snapshots)
-from tennis.engine.players import Resolver                        # noqa: E402
-from tennis.engine.surfaces import TournamentSurfaces             # noqa: E402
-
-
-def make_predictor(args, today: str):
-    if args.predictor == "fixed":
-        return FixedPredictor(args.fixed_p)
-    from tennis.engine.predict import PointsPredictor
-    return PointsPredictor.load(args.run, today=today, data_path=args.data, calibrated=not args.raw)
+from tennis.engine.decide import add_policy_args, decide_all, policy_from_args   # noqa: E402
+from tennis.engine.live import (RAW_KALSHI, Retriever, fetch_pull, load_predictor,   # noqa: E402
+                                load_pull, parse_events, save_pull)
 
 
 def fmt(x, spec):
@@ -56,23 +46,11 @@ def main(argv=None) -> int:
                     help="when neither a running edition nor the tournament's history gives one (default: unknown)")
     ap.add_argument("--include-started", action="store_true",
                     help="price matches past their start time that have no live feed, as if pre-match")
-    pol = ap.add_argument_group("policy (engine/decide.py)")
-    pol.add_argument("--bankroll", type=float, default=Policy.bankroll, help="dollars")
-    pol.add_argument("--kelly", type=float, default=Policy.kelly, help="Kelly fraction (1 = full Kelly)")
-    pol.add_argument("--model-weight", type=float, default=Policy.model_weight,
-                     help="logit blend weight on the model (1 = model only, 0 = market only)")
-    pol.add_argument("--max-stake", type=float, default=None, help="cap per match, dollars")
-    pol.add_argument("--max-total", type=float, default=Policy.max_total,
-                     help="cap on summed stakes, fraction of bankroll (scaled down pro rata)")
-    pol.add_argument("--in-play-bets", action="store_true",
-                     help="bet on live matches too (off by default: the feed's lag behind the court is unknown)")
-    pol.add_argument("--allow-stale", action="store_true", help="bet even when a player's rating is stale")
+    add_policy_args(ap)
     ap.add_argument("--data", type=Path, default=ROOT / "tennis.db")
     ap.add_argument("--json", type=Path, help="also write every row and decision as JSON here")
     args = ap.parse_args(argv)
-    policy = Policy(bankroll=args.bankroll, kelly=args.kelly, model_weight=args.model_weight,
-                    max_stake=args.max_stake, max_total=args.max_total, in_play=args.in_play_bets,
-                    allow_stale=args.allow_stale)
+    policy = policy_from_args(args)
 
     if args.pull:
         pull = load_pull(args.pull)
@@ -85,12 +63,11 @@ def main(argv=None) -> int:
 
     if not args.data.exists():
         raise SystemExit(f"{args.data} not found; run scripts/build_db.py first")
-    predictor = make_predictor(args, pull.as_of[:10])
+    predictor = load_predictor(args.predictor, fixed_p=args.fixed_p, run=args.run, raw=args.raw,
+                               data_path=args.data, today=pull.as_of[:10])
     con = sqlite3.connect(f"file:{args.data.resolve().as_posix()}?mode=ro", uri=True)
     try:
-        resolver = getattr(predictor, "players", None) or Resolver.from_db(con, pull.as_of[:10], alias="main")
-        rows = snapshots(pull, predictor, resolver, DbEditions(con), args.surface, args.include_started,
-                         TournamentSurfaces.from_db(con))
+        rows = Retriever(predictor, con, pull.as_of[:10], args.surface, args.include_started)(pull)
     finally:
         con.close()
     decisions = decide_all(rows, pull.books, policy)

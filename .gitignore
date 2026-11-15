@@ -8,6 +8,8 @@ __pycache__/
 data/review_open.csv
 models.db
 models.db-*
+live.db
+live.db-*
 models/
 
 # Secrets
