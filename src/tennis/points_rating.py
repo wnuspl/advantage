@@ -40,6 +40,14 @@ Updates, from the pre-match state:
 - Retirements scale w by retired_weight (0 skips them); walkovers and unfinished matches
   never update.
 
+Context offsets (milestone 9; context.py): with cs_*/cr_* parameters, each serve-point
+logit gets x_A += beta_serve . c_A - beta_ret . c_B (rust after a layoff, recent load, age)
+BEFORE the roll-up. The adjusted x is used for the prediction and for every update tier,
+so a player who performs as their context predicts is not re-rated; the offset itself is
+never stored in the state. rust_weight scales the update weight of matches where either
+player is 1-5 matches back from a > 12-week break. All zero = runs 605/694 exactly.
+matchup() (live predictions) does not apply context yet.
+
 Prediction (prediction-only parameters, scored from one pass):
     blend   multiplier on the surface deviations (and their variances); 1 = full model
     unc     uncertainty shrink: logit P / sqrt(1 + unc * 3 var(logit P) / pi^2), with
@@ -61,7 +69,7 @@ from datetime import date
 
 import numpy as np
 
-from . import markov
+from . import context, markov
 
 NAN = float("nan")
 _PI2 = math.pi ** 2
@@ -85,6 +93,49 @@ class PointsParams:
     base_lr: float = 0.0005       # learning rate of the (tour, surface) base logit
     score_weight: float = 0.0     # weight of the score update when there are no stats
                                   # (0 = off: result-only fallback, as in run 605)
+    # context offsets (context.FEATURES): cs_* on the player's own serve logit, cr_* on
+    # their own return; all 0 = no context (runs 605/694). Used for prediction AND update.
+    cs_back1: float = 0.0
+    cs_back2_5: float = 0.0
+    cs_gap5_12: float = 0.0
+    cs_gap1: float = 0.0
+    cs_load28: float = 0.0
+    cs_age_lt22: float = 0.0
+    cs_age_lt26: float = 0.0
+    cs_age_gt28: float = 0.0
+    cs_age_gt32: float = 0.0
+    cr_back1: float = 0.0
+    cr_back2_5: float = 0.0
+    cr_gap5_12: float = 0.0
+    cr_gap1: float = 0.0
+    cr_load28: float = 0.0
+    cr_age_lt22: float = 0.0
+    cr_age_lt26: float = 0.0
+    cr_age_gt28: float = 0.0
+    cr_age_gt32: float = 0.0
+    # per-tour context: with ctx_per_tour = 1, WTA matches use the *_w coefficients and
+    # ATP matches the plain ones; 0 = the plain ones for both tours
+    ctx_per_tour: float = 0.0
+    cs_back1_w: float = 0.0
+    cs_back2_5_w: float = 0.0
+    cs_gap5_12_w: float = 0.0
+    cs_gap1_w: float = 0.0
+    cs_load28_w: float = 0.0
+    cs_age_lt22_w: float = 0.0
+    cs_age_lt26_w: float = 0.0
+    cs_age_gt28_w: float = 0.0
+    cs_age_gt32_w: float = 0.0
+    cr_back1_w: float = 0.0
+    cr_back2_5_w: float = 0.0
+    cr_gap5_12_w: float = 0.0
+    cr_gap1_w: float = 0.0
+    cr_load28_w: float = 0.0
+    cr_age_lt22_w: float = 0.0
+    cr_age_lt26_w: float = 0.0
+    cr_age_gt28_w: float = 0.0
+    cr_age_gt32_w: float = 0.0
+    rust_weight: float = 1.0      # update weight of a match where a player is 1-5 matches
+                                  # back from a > 12-week break (1 = full weight)
     blend: float = 1.0           # prediction: multiplier on the surface deviations
     unc: float = 1.0              # prediction: uncertainty shrink (0 = off)
     # registry compatibility (standings, Elo/Glicko-style fields); unused here
@@ -96,6 +147,23 @@ class PointsParams:
 
     def update_key(self) -> "PointsParams":
         return replace(self, blend=1.0, unc=1.0)
+
+    def context_betas(self, tour: str = "atp") -> tuple[np.ndarray, np.ndarray]:
+        """(beta_serve, beta_ret) aligned with context.FEATURES for a tour's matches."""
+        sfx = "_w" if tour == "wta" and self.ctx_per_tour else ""
+        bs = np.array([getattr(self, f"cs_{f}{sfx}") for f in context.FEATURES])
+        br = np.array([getattr(self, f"cr_{f}{sfx}") for f in context.FEATURES])
+        return bs, br
+
+    def has_context(self) -> bool:
+        return any(b.any() for t in ("atp", "wta") for b in self.context_betas(t))
+
+    def with_context(self, beta_serve, beta_ret, tour: str | None = None) -> "PointsParams":
+        """Set the coefficients: of both tours (tour None, shared), or of one tour's set."""
+        sfx = "_w" if tour == "wta" else ""
+        kw = {f"cs_{f}{sfx}": float(b) for f, b in zip(context.FEATURES, beta_serve)}
+        kw.update({f"cr_{f}{sfx}": float(b) for f, b in zip(context.FEATURES, beta_ret)})
+        return replace(self, **kw)
 
 
 # ---------------------------------------------------------------------------- data
@@ -227,6 +295,7 @@ def attach(con: sqlite3.Connection, m, alias: str = "data") -> PointsData:
     if "points" in m.extra:
         if "scores" not in m.extra:
             attach_scores(con, m, alias)
+        context.attach(con, m, alias)
         return m.extra["points"]
     rule, counts = infer_rules(con.execute(
         f"""SELECT m.edition_id, e.tournament_id, e.start_date, m.score, m.best_of
@@ -254,6 +323,7 @@ def attach(con: sqlite3.Connection, m, alias: str = "data") -> PointsData:
             d.l_sp[i], d.l_sw[i] = st[0]
     m.extra["points"] = d
     attach_scores(con, m, alias)
+    context.attach(con, m, alias)
     return d
 
 
@@ -388,6 +458,21 @@ def run(m, p: PointsParams) -> PointsResult:
     mtb = markov.grid(1, "mtb") if scw > 0.0 else None
     odd = (markov.CAT_GAMES_ODD, markov.CAT_GAMES_ODD_ADV)
     log = math.log
+    # context offsets on x_a / x_b (prediction and update; never stored in the state)
+    rustw = p.rust_weight
+    if p.has_context() or rustw != 1.0:
+        C = m.extra.get("context")
+        if C is None:
+            raise ValueError("context parameters need context features: call context.attach() first")
+        oa_, ob_ = context.offsets(C, *p.context_betas("atp"))
+        if p.ctx_per_tour:
+            wa, wb = context.offsets(C, *p.context_betas("wta"))
+            is_w = np.array([t == "wta" for t in m.tour[:n]] + [False] * (len(oa_) - n))
+            oa_, ob_ = np.where(is_w, wa, oa_), np.where(is_w, wb, ob_)
+        OA, OB = oa_[:n].tolist(), ob_[:n].tolist()
+        rusty = ((C[0][:n, 0] + C[0][:n, 1] + C[1][:n, 0] + C[1][:n, 1]) > 0).tolist()
+    else:
+        OA = OB = rusty = None
 
     for i in range(n):
         start = m.start[i]
@@ -434,6 +519,12 @@ def run(m, p: PointsParams) -> PointsResult:
             b = base[bkey] = BASE_INIT.get(tour, 0.4)
         xa0, xa1 = b + sw_ - rl_, dsw - drl          # winner serving
         xb0, xb1 = b + sl_ - rw_, dsl - drw          # loser serving
+        if OA is not None:
+            oa, ob = OA[i], OB[i]
+            xa0 += oa
+            xb0 += ob
+        else:
+            oa = ob = 0.0
         va0, va1 = vsw + vrl, dvsw + dvrl
         vb0, vb1 = vsl + vrw, dvsl + dvrw
         out.xa[i], out.xa_s[i], out.va[i], out.va_s[i] = xa0, xa1, va0, va1
@@ -451,6 +542,8 @@ def run(m, p: PointsParams) -> PointsResult:
         if status == "walkover" or status == "unfinished":
             continue
         weight = rtw if status == "retired" else 1.0
+        if rusty is not None and rusty[i]:
+            weight *= rustw
         if weight <= 0.0:
             continue
         xa, xb = xa0 + xa1, xb0 + xb1
@@ -487,8 +580,8 @@ def run(m, p: PointsParams) -> PointsResult:
             base[bkey] = b + blr * (za + zb)
             rweight = rsw * weight
             if rweight > 0.0:
-                xa = b + sw_ - rl_ + dsw - drl
-                xb = b + sl_ - rw_ + dsl - drw
+                xa = b + sw_ - rl_ + dsw - drl + oa
+                xb = b + sl_ - rw_ + dsl - drw + ob
         elif scores is not None and scores[i] is not None:
             # score tier: Newton step on the log-likelihood of the set scores (winner = A),
             # summed over who served first in set 1; Fisher information from the set tables
@@ -603,3 +696,44 @@ def run(m, p: PointsParams) -> PointsResult:
     out.p_winner = pw
     out.state = PointsState(p, S, R, VS, VR, LAST, CNT, DS, DR, DVS, DVR, SLAST, SCNT, base)
     return out
+
+
+def matchup(state: PointsState, a: int, b: int, tour: str, surface: str | None, on: str):
+    """(x_a, x_b, var_a, var_b) for A vs B on ISO date `on` from a run's final state:
+    each serve-point logit with the run's surface blend, variances grown by inactivity
+    to `on` (the same arithmetic run() uses before a match). A player never seen starts
+    as a new player."""
+    p, day = state.params, date.fromisoformat(on).toordinal()
+
+    def part(i):
+        if i in state.serve:
+            el = max(day - state.last[i], 0)
+            s, r = state.serve[i], state.ret[i]
+            vs, vr = min(state.vs[i] + p.q * el, p.v_init), min(state.vr[i] + p.q * el, p.v_init)
+        else:
+            s = r = -p.init_offset
+            vs = vr = p.v_init
+        k = (i, surface)
+        if surface is None:
+            return s, r, vs, vr, 0.0, 0.0, 0.0, 0.0
+        if k in state.sserve:
+            el = max(day - state.slast[k], 0)
+            return (s, r, vs, vr, state.sserve[k], state.sret[k],
+                    min(state.svs[k] + p.q_surf * el, p.surf_var), min(state.svr[k] + p.q_surf * el, p.surf_var))
+        return s, r, vs, vr, 0.0, 0.0, p.surf_var, p.surf_var
+
+    sa, ra, vsa, vra, dsa, dra, dvsa, dvra = part(a)
+    sb, rb, vsb, vrb, dsb, drb, dvsb, dvrb = part(b)
+    base = state.base.get((tour, surface), BASE_INIT.get(tour, 0.4))
+    xa = base + sa - rb + p.blend * (dsa - drb)
+    xb = base + sb - ra + p.blend * (dsb - dra)
+    va = vsa + vrb + p.blend * (dvsa + dvrb)
+    vb = vsb + vra + p.blend * (dvsb + dvra)
+    return xa, xb, va, vb
+
+
+def win_probability(state: PointsState, xa: float, xb: float, va: float, vb: float,
+                    best_of: int = 3, final: str = "tb") -> float:
+    """P(A wins) exactly as the model predicts it (Markov roll-up + uncertainty shrink)."""
+    pr, da, db = markov.grid(best_of, final).lookup_array(np.array([xa]), np.array([xb]), grad=True)
+    return float(_shrink(pr, da, db, np.array([va]), np.array([vb]), state.params.unc)[0])

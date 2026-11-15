@@ -202,6 +202,39 @@ Code: `src/tennis/markov.py` (point -> game -> set -> match), `src/tennis/points
   - **Blackout with the score tier** (stats hidden from 2022-01-01, tour-level to 2026-05-25, calibrated): run 694 0.5997 vs 0.5965 full (cost 0.0032), against run 605's 0.6051 vs 0.5968 (cost 0.0083) and Glicko-2 0.6045. Per year 2022-26: 0.5944 / 0.5957 / 0.5986 / 0.6114 / 0.5974 (605 result-only: 0.5960 / 0.6048 / 0.6060 / 0.6161 / 0.6002). The edge no longer decays to Glicko level: about 60% of it survives four years without stats.
 - **Open.** Standings (`scripts/ratings.py`) not adapted to serve/return output; uncertainty shrink is a patch for underestimated variances (joint covariance, or a fitted variance scale, may do better); retirement handling of partial stats; whether Glicko's logit adds anything on top (milestone 9's context model).
 
+## Context offsets inside points_v1 (milestone 9, run 790)
+
+Code: `src/tennis/context.py` (features), `points_rating.run()` (offsets), `scripts/context_fit.py`
+(fit), `scripts/context_test.py` (test scoring, run once). Motivation: `docs/context_report.md`.
+
+**Model.** Each player gets point-in-time features c (1st and 2nd-5th match back from a
+> 12-week break, event 5-12 weeks after the previous one, back-to-back week, matches in the
+previous 4 weeks / 5, and a piecewise-linear age curve with knots at 22, 26, 28, 32). Each
+serve-point logit gets `x_A' = x_A + beta_serve . c_A - beta_ret . c_B` before the Markov
+roll-up. The adjusted x is used for the prediction and for every update tier (points, score,
+result), and the offset is never stored in the state: a player who performs as their
+context predicts is not re-rated. Parameters `cs_*` / `cr_*` (all 0 = run 694 exactly),
+`rust_weight` (update weight of comeback matches; 1 = off), `ctx_per_tour` (separate WTA set;
+off).
+
+**Fit.** Weighted least squares of serve-point residuals z = (k - np)/(np(1-p)) on the
+features (weights 1 / (1/(np(1-p)) + obs_var + var x)), matches with stats 2000-2018, added
+to the coefficients and repeated on the new run's residuals. Because the offsets feed the
+updates, a single residual fit underestimates them; transient features (rust, load) settle
+in ~3 iterations, lasting ones (age) creep: a slowly moving offset is nearly
+indistinguishable from the rating level, so the age serve/return split is weakly identified.
+Then `q`, `obs_var`, `rust_weight`, `unc` were swept (sweeps `context-v1-tune`, `-tune2`) and
+the coefficients refit at the chosen `q` 7e-6, `unc` 3. Without context, lower `q`/`unc` is
+worse: the offsets take over what variance growth did.
+
+**Results (tour-level, calibrated, vs run 694).** Val 2019-21: -0.0040 ± 0.0008. Test
+2022-26: **0.5944 vs 0.5968, -0.0024 ± 0.0005** (ATP -0.0033, WTA -0.0014). The same
+features as an antisymmetric logistic on top of calibrated run 694: test -0.0020; run 790
+vs that layer -0.0004 ± 0.0004; the layer stacked on 790 adds nothing. Not kept: per-tour
+coefficients (val no gain), `rust_weight` < 1 (worse). Per-(tour, best-of) calibration
+(`calibrate.calibrated(best_of=...)`) is worth ~0.0002 on 790. Calibration window: on val no
+window (2-10 years) beat raw, mostly WTA era drift; default unchanged.
+
 ## Heavy layer: style vectors (`style_pca_v1`)
 
 Spec: `HEAVY_LAYER_SPEC.md`. Code: `src/tennis/mcp_notation.py` (parser), `src/tennis/style_features.py` (counts, point-in-time totals, shrinkage), `src/tennis/heavy.py` (fits, storage, `get_style_vector`), `scripts/style_fit.py` (`fit`, `report`, `show`). Dependencies: numpy + scikit-learn (`requirements.txt`).

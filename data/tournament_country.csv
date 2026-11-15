@@ -1,0 +1,279 @@
+# Host country (IOC code) of tour-level tournaments by canonical_name, for the context report's
+# home-country feature. Hand-made 2026-11-14. Events whose host changes by year (Tour/WTA Finals,
+# Masters Cup, Olympics without a city, Laver Cup, Next Gen Finals, Tournament of Champions) are left out.
+canonical_name,ioc
+"ATP Rio de Janeiro",BRA
+"Abu Dhabi",UAE
+"Acapulco",MEX
+"Adelaide",AUS
+"Adelaide 1",AUS
+"Adelaide 2",AUS
+"Adelaide-2",AUS
+"Almaty",KAZ
+"Amelia Island",USA
+"Amersfoort",NED
+"Amsterdam",NED
+"Antalya",TUR
+"Antwerp",BEL
+"Astana",KAZ
+"Athens",GRE
+"Athens Olympics",GRE
+"Atlanta",USA
+"Atp Cup",AUS
+"Auckland",NZL
+"Austin",USA
+"Australian Open",AUS
+"Bad Gastein",AUT
+"Bad Homburg",GER
+"Bahia",BRA
+"Baku",AZE
+"Bali",INA
+"Bangalore",IND
+"Bangkok",THA
+"Banja Luka",BIH
+"Barcelona",ESP
+"Basel",SUI
+"Basle",SUI
+"Bastad",SWE
+"Beijing",CHN
+"Beijing Olympics",CHN
+"Belgrade",SRB
+"Belgrade 2",SRB
+"Berlin",GER
+"Biel",SUI
+"Birmingham",GBR
+"Bogota",COL
+"Bol",CRO
+"Bratislava",SVK
+"Brighton",GBR
+"Brisbane",AUS
+"Brussels",BEL
+"Bucharest",ROU
+"Budapest",HUN
+"Buenos Aires",ARG
+"Buenos Aires 125",ARG
+"Cagliari",ITA
+"Calvia",ESP
+"Canada Masters",CAN
+"Canberra",AUS
+"Cancun Finals",MEX
+"Carlsbad",USA
+"Casablanca",MAR
+"Charleston",USA
+"Charleston 1",USA
+"Charleston 2",USA
+"Chengdu",CHN
+"Chennai",IND
+"Chicago 1",USA
+"Chicago 2",USA
+"Cincinnati",USA
+"Cincinnati Masters",USA
+"Cleveland",USA
+"Cluj Napoca",ROU
+"Cluj-Napoca 1",ROU
+"Cluj-Napoca 2",ROU
+"Cologne 1",GER
+"Cologne 2",GER
+"Copenhagen",DEN
+"Cordoba",ARG
+"Costa Do Sauipe",BRA
+"Courmayeur",ITA
+"Dallas",USA
+"Delray Beach",USA
+"Doha",QAT
+"Doha Aus Open Qualies",QAT
+"Dubai",UAE
+"Dubai Aus Open Qualies",UAE
+"Dusseldorf",GER
+"Eastbourne",GBR
+"Estoril",POR
+"Fes",MAR
+"Filderstadt",GER
+"Florence",ITA
+"Florianopolis",BRA
+"Forest Hills",USA
+"Fort Worth Finals",USA
+"Gdynia",POL
+"Geneva",SUI
+"Gijon",ESP
+"Gippsland Trophy",AUS
+"Gold Coast",AUS
+"Grampians Trophy",AUS
+"Granby",CAN
+"Great Ocean Road Open",AUS
+"Gstaad",SUI
+"Guadalajara",MEX
+"Guadalajara 2",MEX
+"Guadalajara Finals",MEX
+"Guangzhou",CHN
+"Halle",GER
+"Hamburg",GER
+"Hamburg Masters",GER
+"Hangzhou",CHN
+"Hanover",GER
+"Hasselt",BEL
+"Helsinki",FIN
+"Hilton Head",USA
+"Hiroshima",JPN
+"Ho Chi Minh City",VIE
+"Hobart",AUS
+"Hong Kong",HKG
+"Houston",USA
+"Hua Hin",THA
+"Hua Hin 2",THA
+"Hyderabad",IND
+"Iasi",ROU
+"Indian Wells",USA
+"Indian Wells Masters",USA
+"Indianapolis",USA
+"Istanbul",TUR
+"Japan Open",JPN
+"Japan Open Tokyo",JPN
+"Jiujiang",CHN
+"Johannesburg",RSA
+"Jurmala",LAT
+"Kaohsiung",TPE
+"Katowice",POL
+"Kitzbuhel",AUT
+"Klagenfurt",AUT
+"Knokke-Heist",BEL
+"Kolkata",IND
+"Kuala Lumpur",MAS
+"Las Vegas",USA
+"Lausanne",SUI
+"Leipzig",GER
+"Lexington",USA
+"Limoges",FRA
+"Linz",AUT
+"London",GBR
+"London Olympics",GBR
+"Long Island",USA
+"Los Angeles",USA
+"Los Cabos",MEX
+"Lugano",SUI
+"Luxembourg",LUX
+"Lyon",FRA
+"Madrid",ESP
+"Madrid Masters",ESP
+"Mallorca",ESP
+"Marbella",ESP
+"Marrakech",MAR
+"Marseille",FRA
+"Melbourne",AUS
+"Melbourne 1",AUS
+"Melbourne 2",AUS
+"Memphis",USA
+"Merida",MEX
+"Metz",FRA
+"Mexico City",MEX
+"Miami",USA
+"Miami Masters",USA
+"Milan",ITA
+"Modena",ITA
+"Monastir",TUN
+"Monte Carlo Masters",MON
+"Monterrey",MEX
+"Montpellier",FRA
+"Montreal",CAN
+"Moscow",RUS
+"Mumbai",IND
+"Munich",GER
+"Murray River Open",AUS
+"Nanchang",CHN
+"Naples",ITA
+"New Haven",USA
+"New York",USA
+"Newport",USA
+"Nice",FRA
+"Ningbo",CHN
+"Nottingham",GBR
+"Nur-Sultan",KAZ
+"Nuremberg",GER
+"Nurnberg",GER
+"Oeiras",POR
+"Oklahoma",USA
+"Oklahoma City",USA
+"Oporto",POR
+"Orlando",USA
+"Osaka",JPN
+"Ostrava",CZE
+"Palermo",ITA
+"Paris",FRA
+"Paris Masters",FRA
+"Paris Olympics",FRA
+"Parma",ITA
+"Pattaya",THA
+"Philadelphia",USA
+"Phillip Island Trophy",AUS
+"Poertschach",AUT
+"Ponte Vedra Beach",USA
+"Portoroz",SLO
+"Prague",CZE
+"Pune",IND
+"Quebec City",CAN
+"Queen's Club",GBR
+"Quito",ECU
+"Rabat",MAR
+"Rio Olympics",BRA
+"Rio de Janeiro",BRA
+"Riyadh Finals",KSA
+"Roland Garros",FRA
+"Rome",ITA
+"Rome Masters",ITA
+"Rotterdam",NED
+"Rouen",FRA
+"San Diego",USA
+"San Jose",USA
+"San Marino",SMR
+"Santiago",CHI
+"Sao Paulo",BRA
+"Sarasota",USA
+"Sardinia",ITA
+"Scottsdale",USA
+"Seoul",KOR
+"Shanghai",CHN
+"Shanghai Masters",CHN
+"Shenzhen",CHN
+"Shenzhen Finals",CHN
+"Singapore",SGP
+"Sofia",BUL
+"Sopot",POL
+"St. Petersburg",RUS
+"St. Poelten",AUT
+"Stanford",USA
+"Stockholm",SWE
+"Strasbourg",FRA
+"Stuttgart",GER
+"Stuttgart Masters",GER
+"Stuttgart Outdoor",GER
+"Sydney",AUS
+"Sydney Olympics",AUS
+"Taipei",TPE
+"Tallinn",EST
+"Tashkent",UZB
+"Tel Aviv",ISR
+"Tenerife",ESP
+"Tianjin",CHN
+"Tokyo",JPN
+"Tokyo Olympics",JPN
+"Toronto",CAN
+"Toulouse",FRA
+"US Open",USA
+"Umag",CRO
+"United Cup",AUS
+"Valencia",ESP
+"Vancouver",CAN
+"Vienna",AUT
+"Vina del Mar",CHI
+"Waikoloa",USA
+"Warsaw",POL
+"Washington",USA
+"Wimbledon",GBR
+"Winston-Salem",USA
+"Wuhan",CHN
+"Yarra Valley Classic",AUS
+"Zagreb",CRO
+"Zhengzhou",CHN
+"Zhuhai",CHN
+"Zurich",SUI
+"s Hertogenbosch",NED

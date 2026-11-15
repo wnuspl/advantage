@@ -1,0 +1,362 @@
+{
+ "run": 605,
+ "as_of": "2026-11-15",
+ "alpha_atp": 0.9336912816266081,
+ "base_atp_hard": 0.5385819348064522,
+ "groups": {
+  "John McEnroe": [
+   "Alexander Zverev",
+   "Ben Shelton",
+   "Arthur Fils",
+   "Rafael Jodar"
+  ],
+  "Ivan Lendl": [
+   "Carlos Alcaraz",
+   "Daniil Medvedev",
+   "Flavio Cobolli",
+   "Frances Tiafoe"
+  ]
+ },
+ "players": [
+  {
+   "name": "Alexander Zverev",
+   "db_name": "Alexander Zverev",
+   "matches": 933,
+   "last_match": "2026-11-02",
+   "overall": 1.3112758976170404,
+   "hard": 1.648514481193564,
+   "serve": 0.9702083088844314,
+   "return": 0.6783061723091327,
+   "sd": 0.08636529017589403,
+   "semi": 0.666685,
+   "final": 0.356805,
+   "title": 0.177215
+  },
+  {
+   "name": "Ben Shelton",
+   "db_name": "Ben Shelton",
+   "matches": 321,
+   "last_match": "2026-11-02",
+   "overall": 1.2370619657100754,
+   "hard": 1.5569911602154527,
+   "serve": 1.0454613877774726,
+   "return": 0.51152977243798,
+   "sd": 0.08719885799730372,
+   "semi": 0.54764,
+   "final": 0.253515,
+   "title": 0.10671
+  },
+  {
+   "name": "Arthur Fils",
+   "db_name": "Arthur Fils",
+   "matches": 347,
+   "last_match": "2026-11-02",
+   "overall": 1.2238291895950026,
+   "hard": 1.4465330172662516,
+   "serve": 0.8368524114380189,
+   "return": 0.6096806058282329,
+   "sd": 0.08816273852890863,
+   "semi": 0.4332,
+   "final": 0.172145,
+   "title": 0.062195
+  },
+  {
+   "name": "Rafael Jodar",
+   "db_name": "Rafael Jodar",
+   "matches": 144,
+   "last_match": "2026-11-02",
+   "overall": 1.1824387375540177,
+   "hard": 1.3902536913428984,
+   "serve": 0.6481657277213798,
+   "return": 0.7420879636215185,
+   "sd": 0.08331043435873146,
+   "semi": 0.352475,
+   "final": 0.12384,
+   "title": 0.038695
+  },
+  {
+   "name": "Carlos Alcaraz",
+   "db_name": "Carlos Alcaraz",
+   "matches": 484,
+   "last_match": "2026-11-02",
+   "overall": 1.5390515002968392,
+   "hard": 1.840238073682925,
+   "serve": 0.8933337413648991,
+   "return": 0.9469043323180258,
+   "sd": 0.09320340909982551,
+   "semi": 0.891175,
+   "final": 0.647365,
+   "title": 0.48198
+  },
+  {
+   "name": "Daniil Medvedev",
+   "db_name": "Daniil Medvedev",
+   "matches": 875,
+   "last_match": "2026-11-02",
+   "overall": 1.155006794395105,
+   "hard": 1.5135061992888392,
+   "serve": 0.6985667560416575,
+   "return": 0.8149394432471818,
+   "sd": 0.08313181555568026,
+   "semi": 0.540995,
+   "final": 0.25153,
+   "title": 0.08449
+  },
+  {
+   "name": "Flavio Cobolli",
+   "db_name": "Flavio Cobolli",
+   "matches": 447,
+   "last_match": "2026-10-26",
+   "overall": 1.0772785030608385,
+   "hard": 1.1996498954957975,
+   "serve": 0.6508375498399136,
+   "return": 0.5488123456558841,
+   "sd": 0.08648391163525143,
+   "semi": 0.208405,
+   "final": 0.059895,
+   "title": 0.01206
+  },
+  {
+   "name": "Frances Tiafoe",
+   "db_name": "Frances Tiafoe",
+   "matches": 720,
+   "last_match": "2026-11-02",
+   "overall": 1.126526339773847,
+   "hard": 1.3660740537800278,
+   "serve": 0.702124389611905,
+   "return": 0.6639496641681228,
+   "sd": 0.08589921971720628,
+   "semi": 0.359425,
+   "final": 0.134905,
+   "title": 0.036655
+  }
+ ],
+ "pairs": [
+  {
+   "a": "Alexander Zverev",
+   "b": "Ben Shelton",
+   "p_a_raw": 0.5677127198630554,
+   "p_a": 0.5632725641009357,
+   "serve_pts_a": 0.7230706241931976,
+   "serve_pts_b": 0.7054555590861743
+  },
+  {
+   "a": "Alexander Zverev",
+   "b": "Arthur Fils",
+   "p_a_raw": 0.6372463701759354,
+   "p_a": 0.6285664952473022,
+   "serve_pts_a": 0.7019509534739587,
+   "serve_pts_b": 0.6657409720771933
+  },
+  {
+   "a": "Alexander Zverev",
+   "b": "Rafael Jodar",
+   "p_a_raw": 0.6873135368095654,
+   "p_a": 0.6759815979637522,
+   "serve_pts_a": 0.6761149258456957,
+   "serve_pts_b": 0.6263384937855039
+  },
+  {
+   "a": "Alexander Zverev",
+   "b": "Carlos Alcaraz",
+   "p_a_raw": 0.3295357131710605,
+   "p_a": 0.3400239322906328,
+   "serve_pts_a": 0.6308751746411337,
+   "serve_pts_b": 0.6766704625438222
+  },
+  {
+   "a": "Alexander Zverev",
+   "b": "Daniil Medvedev",
+   "p_a_raw": 0.6248610388989733,
+   "p_a": 0.6168974007033371,
+   "serve_pts_a": 0.6652660732324969,
+   "serve_pts_b": 0.6330826989342938
+  },
+  {
+   "a": "Alexander Zverev",
+   "b": "Flavio Cobolli",
+   "p_a_raw": 0.7892761773605375,
+   "p_a": 0.7743436935248478,
+   "serve_pts_a": 0.7122151988086594,
+   "serve_pts_b": 0.6275598521011411
+  },
+  {
+   "a": "Alexander Zverev",
+   "b": "Frances Tiafoe",
+   "p_a_raw": 0.7072954861627831,
+   "p_a": 0.695038505353023,
+   "serve_pts_a": 0.6936566770966727,
+   "serve_pts_b": 0.6374093425667174
+  },
+  {
+   "a": "Ben Shelton",
+   "b": "Arthur Fils",
+   "p_a_raw": 0.5644255043735252,
+   "p_a": 0.5601963959599965,
+   "serve_pts_a": 0.7170872287612291,
+   "serve_pts_b": 0.7003087092375918
+  },
+  {
+   "a": "Ben Shelton",
+   "b": "Rafael Jodar",
+   "p_a_raw": 0.6120941606204223,
+   "p_a": 0.6048890724193299,
+   "serve_pts_a": 0.6919875416098006,
+   "serve_pts_b": 0.6629178761530696
+  },
+  {
+   "a": "Ben Shelton",
+   "b": "Carlos Alcaraz",
+   "p_a_raw": 0.2750729182159546,
+   "p_a": 0.2880693215185133,
+   "serve_pts_a": 0.6478099788994689,
+   "serve_pts_b": 0.7105992552897118
+  },
+  {
+   "a": "Ben Shelton",
+   "b": "Daniil Medvedev",
+   "p_a_raw": 0.547374641409073,
+   "p_a": 0.5442503002748066,
+   "serve_pts_a": 0.681419839672492,
+   "serve_pts_b": 0.6693503971750991
+  },
+  {
+   "a": "Ben Shelton",
+   "b": "Flavio Cobolli",
+   "p_a_raw": 0.7264347927691034,
+   "p_a": 0.7133787934975879,
+   "serve_pts_a": 0.7270329131766107,
+   "serve_pts_b": 0.6640837946321291
+  },
+  {
+   "a": "Ben Shelton",
+   "b": "Frances Tiafoe",
+   "p_a_raw": 0.6352919575803744,
+   "p_a": 0.626723730541078,
+   "serve_pts_a": 0.7090395760957389,
+   "serve_pts_b": 0.6734699563207649
+  },
+  {
+   "a": "Arthur Fils",
+   "b": "Rafael Jodar",
+   "p_a_raw": 0.5465771229762948,
+   "p_a": 0.5435048183385927,
+   "serve_pts_a": 0.6513544733649306,
+   "serve_pts_b": 0.6394979133476281
+  },
+  {
+   "a": "Arthur Fils",
+   "b": "Carlos Alcaraz",
+   "p_a_raw": 0.215232575840476,
+   "p_a": 0.23007518391431528,
+   "serve_pts_a": 0.6046783926080246,
+   "serve_pts_b": 0.688937636782854
+  },
+  {
+   "a": "Arthur Fils",
+   "b": "Daniil Medvedev",
+   "p_a_raw": 0.47623696218249006,
+   "p_a": 0.47781051561580673,
+   "serve_pts_a": 0.6401177048268056,
+   "serve_pts_b": 0.6461387923226376
+  },
+  {
+   "a": "Arthur Fils",
+   "b": "Flavio Cobolli",
+   "p_a_raw": 0.6797435667261729,
+   "p_a": 0.6687839261204249,
+   "serve_pts_a": 0.6889448675786407,
+   "serve_pts_b": 0.6407009329968423
+  },
+  {
+   "a": "Arthur Fils",
+   "b": "Frances Tiafoe",
+   "p_a_raw": 0.5744400548338604,
+   "p_a": 0.5695702451584643,
+   "serve_pts_a": 0.6695818950967574,
+   "serve_pts_b": 0.6503964982324512
+  },
+  {
+   "a": "Rafael Jodar",
+   "b": "Carlos Alcaraz",
+   "p_a_raw": 0.17640163430676087,
+   "p_a": 0.19174004981271847,
+   "serve_pts_a": 0.5628048528686701,
+   "serve_pts_b": 0.6625159063830873
+  },
+  {
+   "a": "Rafael Jodar",
+   "b": "Daniil Medvedev",
+   "p_a_raw": 0.4258409078335252,
+   "p_a": 0.4306928369497685,
+   "serve_pts_a": 0.5995117725223305,
+   "serve_pts_b": 0.6180969195532591
+  },
+  {
+   "a": "Rafael Jodar",
+   "b": "Flavio Cobolli",
+   "p_a_raw": 0.6476794682750449,
+   "p_a": 0.6384128764839615,
+   "serve_pts_a": 0.6508431130863439,
+   "serve_pts_b": 0.612486576815109
+  },
+  {
+   "a": "Rafael Jodar",
+   "b": "Frances Tiafoe",
+   "p_a_raw": 0.5313407602350206,
+   "p_a": 0.5292675133745454,
+   "serve_pts_a": 0.6303808082702888,
+   "serve_pts_b": 0.6224949017908556
+  },
+  {
+   "a": "Carlos Alcaraz",
+   "b": "Daniil Medvedev",
+   "p_a_raw": 0.780382281594627,
+   "p_a": 0.7656344905255336,
+   "serve_pts_a": 0.6514463689170208,
+   "serve_pts_b": 0.5699083518295633
+  },
+  {
+   "a": "Carlos Alcaraz",
+   "b": "Flavio Cobolli",
+   "p_a_raw": 0.8876688731941024,
+   "p_a": 0.8732580379763027,
+   "serve_pts_a": 0.6994581580037024,
+   "serve_pts_b": 0.5640893490390797
+  },
+  {
+   "a": "Carlos Alcaraz",
+   "b": "Frances Tiafoe",
+   "p_a_raw": 0.8346687764070007,
+   "p_a": 0.819316667033539,
+   "serve_pts_a": 0.6804460788382697,
+   "serve_pts_b": 0.5744792321798172
+  },
+  {
+   "a": "Daniil Medvedev",
+   "b": "Flavio Cobolli",
+   "p_a_raw": 0.7111621953528402,
+   "p_a": 0.6987365689744373,
+   "serve_pts_a": 0.6573869681274218,
+   "serve_pts_b": 0.600764924964541
+  },
+  {
+   "a": "Daniil Medvedev",
+   "b": "Frances Tiafoe",
+   "p_a_raw": 0.6029829335630983,
+   "p_a": 0.5963305009933425,
+   "serve_pts_a": 0.6370943272065106,
+   "serve_pts_b": 0.6108836558161346
+  },
+  {
+   "a": "Flavio Cobolli",
+   "b": "Frances Tiafoe",
+   "p_a_raw": 0.38393954204794584,
+   "p_a": 0.3913823529832225,
+   "serve_pts_a": 0.6315967253648235,
+   "serve_pts_b": 0.6615802195267922
+  }
+ ],
+ "sims": 200000,
+ "note": "stats end 2026-05-25: later matches update on result only"
+}

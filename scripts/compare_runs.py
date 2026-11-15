@@ -7,7 +7,7 @@
 Each rating run (any model in ratingmodels) is replayed from its saved parameters. The
 reference is the CALIBRATED first run. Calibration: per quarter and tour, a scalar alpha
 on the logit fitted on the previous 10 years of that tour's tour-level matches
-(src/tennis/calibrate.py). --stored adds runs whose predictions are stored in models.db
+(src/tennis/calibrate.py; --by-best-of: per tour and best-of). --stored adds runs whose predictions are stored in models.db
 (e.g. the matchup runs); then only matches every run predicted are scored.
 
 Columns: log loss, delta vs reference with SE (per-match paired differences) and quarterly
@@ -35,6 +35,8 @@ def main(argv=None) -> int:
     ap.add_argument("--block", choices=["val", "test"], default="test")
     ap.add_argument("--stored", action="append", default=[], help="LABEL=RUN_ID with stored predictions")
     ap.add_argument("--years", type=int, default=10, help="calibration history (years)")
+    ap.add_argument("--by-best-of", action="store_true",
+                    help="calibration alpha per (tour, best-of) instead of per tour")
     ap.add_argument("--models", type=Path, default=models_db.MODELS_DB)
     ap.add_argument("--data", type=Path, default=models_db.DATA_DB)
     args = ap.parse_args(argv)
@@ -51,7 +53,8 @@ def main(argv=None) -> int:
             spec.attach(con, prep.m)
         res = spec.run(prep.m, params)
         pw = spec.predict(res, params)
-        cal, y, idx, alphas = calibrate.calibrated(prep, pw, lo, hi, years=args.years)
+        bo = calibrate.best_of_of(prep.m) if args.by_best_of else None
+        cal, y, idx, alphas = calibrate.calibrated(prep, pw, lo, hi, years=args.years, best_of=bo)
         raw, _ = calibrate.oriented(prep, pw, idx)
         lab = f"{rid}:{spec.model_id}"
         preds[lab + " raw"], preds[lab + " cal"] = raw, cal

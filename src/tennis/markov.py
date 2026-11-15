@@ -282,3 +282,98 @@ def score_grid(final: str) -> ScoreGrid:
     if final not in _SCORE_GRIDS:
         _SCORE_GRIDS[final] = ScoreGrid(final)
     return _SCORE_GRIDS[final]
+
+
+# ---------------------------------------------------------------------------- scorelines
+_A_WINS = ("6-0", "6-1", "6-2", "6-3", "6-4", "7-5", "7-6")
+
+
+def _label(c: int, adv: bool) -> str:
+    """Set score of category c from A's side ('6-3', '4-6', '8-6+' for long advantage sets)."""
+    s = _A_WINS[c % 7]
+    if adv and c % 7 == 6:
+        s = "8-6+"
+    if c >= 7:
+        a, b = s.rstrip("+").split("-")
+        s = f"{b}-{a}" + ("+" if s.endswith("+") else "")
+    return s
+
+
+def match_score_dist(pa: float, pb: float, best_of: int = 3, final: str = "tb",
+                     min_prob: float = 1e-7) -> dict:
+    """{'6-4 3-6 7-6': probability, ...}: every match scoreline from A's side, A or B
+    serving first with equal probability (later sets follow from game parity). The
+    deciding set follows `final` ('adv'/'tb12' sets past 6-6 are pooled as '8-6+'; a match
+    tiebreak shows as '[10-x]' / '[x-10]'). Paths below min_prob are dropped (best of 5
+    has ~100k sequences), so the total is just under 1."""
+    need = best_of // 2 + 1
+    dists = {"tb": (set_score_dist(pa, pb, "tb"), set_score_dist(pb, pa, "tb"))}
+    if final in ("adv", "tb12"):
+        dists["adv"] = (set_score_dist(pa, pb, "adv"), set_score_dist(pb, pa, "adv"))
+    out: dict = {}
+
+    def go(sa, sb, a_first, prob, sets):
+        if sa == need or sb == need:
+            key = " ".join(sets)
+            out[key] = out.get(key, 0.0) + prob
+            return
+        deciding = sa == sb == need - 1
+        if deciding and final == "mtb":
+            t = tiebreak(pa, pb, 10)
+            go(sa + 1, sb, a_first, prob * t, sets + ["[10-x]"])
+            go(sa, sb + 1, a_first, prob * (1 - t), sets + ["[x-10]"])
+            return
+        kind = "adv" if deciding and final in ("adv", "tb12") else "tb"
+        a_dist, b_dist = dists[kind]
+        odd = CAT_GAMES_ODD_ADV if kind == "adv" else CAT_GAMES_ODD
+        for c in range(SET_CATS):
+            pc = a_dist[c] if a_first else b_dist[mirror(c)]   # B first: B's table, B's side
+            pr = prob * pc
+            if pr < min_prob:
+                continue
+            nxt = (not a_first) if odd[c] else a_first
+            go(sa + (c < 7), sb + (c >= 7), nxt, pr, sets + [_label(c, kind == "adv")])
+
+    go(0, 0, True, 0.5, [])
+    go(0, 0, False, 0.5, [])
+    return out
+
+
+def set_count_dist(pa: float, pb: float, best_of: int = 3, final: str = "tb") -> dict:
+    """{'2-0': p, '2-1': p, ...} exactly (no pruning), from A's side."""
+    need = best_of // 2 + 1
+    dists = {"tb": (set_score_dist(pa, pb, "tb"), set_score_dist(pb, pa, "tb")),
+             "adv": (set_score_dist(pa, pb, "adv"), set_score_dist(pb, pa, "adv"))}
+    out: dict = {}
+
+    def go(sa, sb, a_first, prob):
+        if sa == need or sb == need:
+            k = f"{sa}-{sb}"
+            out[k] = out.get(k, 0.0) + prob
+            return
+        deciding = sa == sb == need - 1
+        if deciding and final == "mtb":
+            t = tiebreak(pa, pb, 10)
+            go(sa + 1, sb, a_first, prob * t)
+            go(sa, sb + 1, a_first, prob * (1 - t))
+            return
+        kind = "adv" if deciding and final in ("adv", "tb12") else "tb"
+        a_dist, b_dist = dists[kind]
+        odd = CAT_GAMES_ODD_ADV if kind == "adv" else CAT_GAMES_ODD
+        # pool categories by (A won the set, parity): 4 branches instead of 14
+        pool = {}
+        for c in range(SET_CATS):
+            pc = a_dist[c] if a_first else b_dist[mirror(c)]
+            key = (c < 7, odd[c])
+            pool[key] = pool.get(key, 0.0) + pc
+        for (a_won, flip), pc in pool.items():
+            go(sa + a_won, sb + (not a_won), (not a_first) if flip else a_first, prob * pc)
+
+    go(0, 0, True, 0.5)
+    go(0, 0, False, 0.5)
+    return dict(sorted(out.items(), key=lambda kv: (-int(kv[0].split("-")[0]), kv[0])))
+
+
+def top_scores(dist: dict, top: int = 5) -> list:
+    """The `top` most likely scorelines of match_score_dist, most likely first."""
+    return sorted(dist.items(), key=lambda kv: -kv[1])[:top]

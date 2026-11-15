@@ -221,6 +221,16 @@ class CalibrateTest(unittest.TestCase):
             pw2[i] = 0.99
         _, _, _, alphas2 = calibrate.calibrated(prep, pw2, "2021-01-01", "2021-01-31")
         self.assertEqual(alphas[("atp", "2021-01-01")], alphas2[("atp", "2021-01-01")])
+        # per best-of: all best-of-3 reproduces the per-tour calibration exactly
+        bo3 = [3] * len(rows)
+        p3, _, _, _ = calibrate.calibrated(prep, pw, "2021-01-01", "2021-12-31", best_of=bo3, min_rows=10)
+        np.testing.assert_array_equal(p3, p1)
+        # a best-of with too little history falls back to the tour alpha; enough history: its own
+        mixed = [5 if i % 2 else 3 for i in range(len(rows))]
+        _, _, _, a_few = calibrate.calibrated(prep, pw, "2021-01-01", "2021-03-31", best_of=mixed, min_rows=1000)
+        self.assertEqual(a_few[("atp", "2021-01-01", 5)], a_few[("atp", "2021-01-01")])
+        _, _, _, a_own = calibrate.calibrated(prep, pw, "2021-01-01", "2021-03-31", best_of=mixed, min_rows=10)
+        self.assertNotEqual(a_own[("atp", "2021-01-01", 5)], a_own[("atp", "2021-01-01")])
 
 
 class ScoreTierTest(unittest.TestCase):
@@ -288,3 +298,34 @@ class ScoreTierTest(unittest.TestCase):
         m2.extra["scores"] = [pr.parse_score("6-0 6-0", 3, "tb", "completed")]
         self.assertEqual(pr.run(m2, pr.PointsParams(score_weight=1.0)).state.serve,
                          pr.run(m2, pr.PointsParams()).state.serve)
+
+
+class ScorelineTest(unittest.TestCase):
+    def test_scorelines_add_up_to_the_win_probability(self):
+        for bo, f in ((3, "tb"), (3, "mtb"), (5, "adv"), (5, "tb12")):
+            counts = markov.set_count_dist(0.66, 0.62, bo, f)
+            self.assertAlmostEqual(sum(counts.values()), 1.0)
+            won = sum(v for k, v in counts.items() if int(k.split("-")[0]) > int(k.split("-")[1]))
+            # tb12 deciding sets are approximated as advantage sets in the scorelines
+            self.assertAlmostEqual(won, markov.match(0.66, 0.62, bo, f), delta=1e-3 if f == "tb12" else 1e-12)
+        d = markov.match_score_dist(0.66, 0.62, 3, "tb", min_prob=0.0)
+        self.assertAlmostEqual(sum(d.values()), 1.0)
+        self.assertAlmostEqual(d["6-4 6-4"], markov.match_score_dist(0.62, 0.66, 3, "tb")["4-6 4-6"])
+        self.assertEqual(markov.top_scores(markov.match_score_dist(0.5, 0.5), 1)[0][1],
+                         max(markov.match_score_dist(0.5, 0.5).values()))
+        self.assertIn("[10-x]", " ".join(markov.match_score_dist(0.66, 0.62, 3, "mtb")))
+        self.assertIn("8-6+", " ".join(markov.match_score_dist(0.66, 0.62, 5, "adv")))
+
+    def test_matchup_reproduces_the_pre_match_prediction(self):
+        rows = [(1, 2, "2020-01-06", "completed", "hard", 60, 45, 60, 36),
+                (1, 3, "2020-02-03", "completed", "clay", 70, 44, 70, 40),
+                (3, 2, "2020-03-02", "completed", "hard", -1, -1, -1, -1),
+                (1, 2, "2020-05-04", "completed", "hard", 60, 41, 60, 39)]
+        p = pr.PointsParams(blend=0.7, unc=5.0)
+        res = pr.run(make(rows), p)
+        st = pr.run(elo.until(make(rows), "2020-05-04"), p).state
+        x = pr.matchup(st, 1, 2, "atp", "hard", "2020-05-04")
+        self.assertAlmostEqual(pr.win_probability(st, *x), res.p_winner[3], places=12)
+        # a player never seen is a new player
+        x_new = pr.matchup(st, 99, 1, "atp", "hard", "2020-05-04")[0]
+        self.assertAlmostEqual(x_new, st.base[("atp", "hard")] - st.ret[1] - p.blend * st.sret[(1, "hard")])
