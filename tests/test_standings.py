@@ -8,7 +8,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
-sys.path.insert(0, str(HERE.parent / "scripts"))
+sys.path.insert(0, str(HERE.parent / "archive" / "v1" / "scripts"))   # archived scripts under test
 sys.path.insert(0, str(HERE))
 
 from tennis import elo, models_db, standings   # noqa: E402

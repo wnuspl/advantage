@@ -1,10 +1,10 @@
 """Tune a walk-forward rating model (Elo or Glicko-2) and record every run in models.db.
 
-    python scripts/sweep.py sweep --model glicko2_v1                # that model's default grid
-    python scripts/sweep.py sweep --model elo_v1 --grid '{\"k\": [150], \"blend\": [0.3, 0.4]}' --name my-test
-    python scripts/sweep.py show                                     # all models, ranked together
-    python scripts/sweep.py show --model glicko2_v1 --scope tour_atp
-    python scripts/sweep.py finalize RUN_ID [--save-predictions]     # model read from the run
+    python archive/v1/scripts/sweep.py sweep --model glicko2_v1                # that model's default grid
+    python archive/v1/scripts/sweep.py sweep --model elo_v1 --grid '{\"k\": [150], \"blend\": [0.3, 0.4]}' --name my-test
+    python archive/v1/scripts/sweep.py show                                     # all models, ranked together
+    python archive/v1/scripts/sweep.py show --model glicko2_v1 --scope tour_atp
+    python archive/v1/scripts/sweep.py finalize RUN_ID [--save-predictions]     # model read from the run
 
 Models: elo_v1 (k, offset, shape, init, retired_weight, surface_init, blend)
         glicko2_v1 (tau, rd_init, vol_init, period_days, rd_max, init, retired_weight,
@@ -30,7 +30,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import models_db, ratingmodels, tuning   # noqa: E402

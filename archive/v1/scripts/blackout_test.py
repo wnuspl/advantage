@@ -1,7 +1,7 @@
 """Stats blackout test: how fast does points_v1 degrade once per-match serve stats stop?
 
-    python scripts/blackout_test.py                       # run 605, blackouts 2022-01-01 and 2023-01-01
-    python scripts/blackout_test.py --blackout 2024-01-01 --run 605 --glicko 187
+    python archive/v1/scripts/blackout_test.py                       # run 605, blackouts 2022-01-01 and 2023-01-01
+    python archive/v1/scripts/blackout_test.py --blackout 2024-01-01 --run 605 --glicko 187
 
 For each blackout date D, run 605 is replayed with every match's serve stats hidden from
 D on (all levels), so from D those matches take the no-stats update (result only: the
@@ -28,7 +28,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import calibrate, models_db, points_rating, tuning     # noqa: E402
@@ -61,8 +62,8 @@ def main(argv=None) -> int:
     ap.add_argument("--run", type=int, default=605, help="points_v1 run to replay")
     ap.add_argument("--glicko", type=int, default=187, help="results-only reference run")
     ap.add_argument("--blackout", action="append", default=None, help="ISO date (repeatable)")
-    ap.add_argument("--json", type=Path, default=ROOT / "results" / "blackout_test.json")
-    ap.add_argument("--png", type=Path, default=ROOT / "reports" / "blackout_test.png")
+    ap.add_argument("--json", type=Path, default=ARCHIVE / "results" / "blackout_test.json")
+    ap.add_argument("--png", type=Path, default=ARCHIVE / "reports" / "blackout_test.png")
     ap.add_argument("--models", type=Path, default=models_db.MODELS_DB)
     ap.add_argument("--data", type=Path, default=models_db.DATA_DB)
     args = ap.parse_args(argv)

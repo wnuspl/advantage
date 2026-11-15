@@ -1,6 +1,6 @@
 """Most similar players by style (serve + return + rally vectors combined), as JSON.
 
-    python scripts/style_neighbours.py --out neighbours.json [--tour atp] [--as-of 2026-05-26]
+    python archive/v1/scripts/style_neighbours.py --out neighbours.json [--tour atp] [--as-of 2026-05-26]
 
 Subjects: players with >= --min-matches charted matches and a backbone match in an edition
 starting on or after --active-since, ordered by their latest ranking before --as-of.
@@ -19,7 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import heavy, models_db                 # noqa: E402

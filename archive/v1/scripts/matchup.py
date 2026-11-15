@@ -1,9 +1,9 @@
 """Matchup layer: walk-forward run of the interaction models against the Glicko-2 benchmark.
 
-    python scripts/matchup.py run                                  # every model, both tours
-    python scripts/matchup.py run --models glicko bilinear --tours atp --test-from 2024-01-01
-    python scripts/matchup.py run --no-save                        # print + report only
-    python scripts/matchup.py run --models glicko siamese --base-run 605 --alpha-rows tour         --test-from 2019-01-01 --test-to 2021-12-31 --report docs/matchup_points_val.md   # 10b
+    python archive/v1/scripts/matchup.py run                                  # every model, both tours
+    python archive/v1/scripts/matchup.py run --models glicko bilinear --tours atp --test-from 2024-01-01
+    python archive/v1/scripts/matchup.py run --no-save                        # print + report only
+    python archive/v1/scripts/matchup.py run --models glicko siamese --base-run 605 --alpha-rows tour         --test-from 2019-01-01 --test-to 2021-12-31 --report docs/matchup_points_val.md   # 10b
 
 Needs tennis.db, the base rating run (default Glicko-2 run 187; any ratingmodels run, e.g.
 points_v1 605) in models.db, and heavy-layer fits
@@ -18,14 +18,15 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import heavy, models_db                            # noqa: E402
 from tennis.matchup import data, harness                       # noqa: E402
 from tennis.matchup.models import MODEL_NAMES                  # noqa: E402
 
-REPORT = ROOT / "docs" / "matchup_report.md"
+REPORT = ARCHIVE / "docs" / "matchup_report.md"
 
 
 def cmd_run(args) -> int:

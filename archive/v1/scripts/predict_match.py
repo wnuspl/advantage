@@ -1,10 +1,10 @@
 """Predict one match with a points_v1 run: win probability plus the likely scorelines.
 
-    python scripts/predict_match.py "Sinner" "Alcaraz"
-    python scripts/predict_match.py "Swiatek" "Sabalenka" --surface clay --date 2026-06-01
-    python scripts/predict_match.py "Sinner" "Alcaraz" --best-of 5 --final tb --top 8
-    python scripts/predict_match.py "Shelton" "Fils" --score "4-6 3-2" --points 30-40 --serving A
-    python scripts/predict_match.py "Shelton" "Fils" --score "4-6 3-2" --serving B --serve-pts 31/48 36/50
+    python archive/v1/scripts/predict_match.py "Sinner" "Alcaraz"
+    python archive/v1/scripts/predict_match.py "Swiatek" "Sabalenka" --surface clay --date 2026-06-01
+    python archive/v1/scripts/predict_match.py "Sinner" "Alcaraz" --best-of 5 --final tb --top 8
+    python archive/v1/scripts/predict_match.py "Shelton" "Fils" --score "4-6 3-2" --points 30-40 --serving A
+    python archive/v1/scripts/predict_match.py "Shelton" "Fils" --score "4-6 3-2" --serving B --serve-pts 31/48 36/50
 
 In play (--score, --points, --serving): the same serve-point probabilities rolled up from
 the current score (markov.match_from), with the uncertainty shrink. --serve-pts also
@@ -31,7 +31,8 @@ import time
 from datetime import date
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import elo, markov, models_db, points_rating, tuning   # noqa: E402

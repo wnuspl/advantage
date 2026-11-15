@@ -1,6 +1,6 @@
 """Phase-profile test, surface-controlled, and the milestone-10 correction on points_v1.
 
-    python scripts/phase_test.py [--points-run 273] [--glicko-run 187] [--out results/phase_test.json]
+    python archive/v1/scripts/phase_test.py [--points-run 273] [--glicko-run 187] [--out results/phase_test.json]
 
 Step 1  stability: are phase edges (win rate by phase beyond the player's own level) stable
         between periods? Pooled (2026-11-14 test) vs surface-adjusted profiles, each with a
@@ -29,7 +29,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import calibrate, composite_eval, markov, phase, points_rating, ratingmodels, tuning  # noqa: E402
@@ -362,7 +363,7 @@ def main():
     ap.add_argument("--glicko-run", type=int, default=187)
     ap.add_argument("--reps", type=int, default=40)
     ap.add_argument("--step1-only", action="store_true", help="rerun step 1 and update it in --out")
-    ap.add_argument("--out", default=str(ROOT / "results" / "phase_test.json"))
+    ap.add_argument("--out", default=str(ARCHIVE / "results" / "phase_test.json"))
     a = ap.parse_args()
     variants = list(phase.VARIANTS)
     con = connect()

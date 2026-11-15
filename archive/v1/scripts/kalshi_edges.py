@@ -1,9 +1,9 @@
 """Kalshi tennis match markets vs a points_v1 run: where the model disagrees most with the
 market, and the log-optimal (Kelly) stake on each, walking the live order book.
 
-    python scripts/kalshi_edges.py                          # run 790, $1000 bankroll, 1/4 Kelly
-    python scripts/kalshi_edges.py --bankroll 500 --kelly 0.5 --model-weight 0.5
-    python scripts/kalshi_edges.py --series KXATPMATCH,KXWTAMATCH --include-started
+    python archive/v1/scripts/kalshi_edges.py                          # run 790, $1000 bankroll, 1/4 Kelly
+    python archive/v1/scripts/kalshi_edges.py --bankroll 500 --kelly 0.5 --model-weight 0.5
+    python archive/v1/scripts/kalshi_edges.py --series KXATPMATCH,KXWTAMATCH --include-started
 
 Steps:
   1. Pull every open event of the match-winner series (public endpoints, no key) and the
@@ -53,7 +53,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import calibrate, context, kalshi, markov, models_db, points_rating, tuning  # noqa: E402

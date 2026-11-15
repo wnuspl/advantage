@@ -2,6 +2,8 @@
 
 Companion to `schema.sql` (SQLite, validated on 3.45). Requires SQLite 3.37+ for `STRICT` tables and generated columns.
 
+> **Reboot (2026-11-15):** research and model scripts moved to `archive/v1/scripts/` (run them as `python archive/v1/scripts/<name>.py`); the data-layer scripts (`build_db`, `init_db`, `fetch_data`, `fetch_acesapi`, `export_review`, `ingest_daily`) stay in `scripts/`. Paths like `scripts/sweep.py` below refer to the archive. See `archive/README.md` and `docs/REBOOT.md`.
+
 ## Purpose
 
 One local store that merges several tennis data sources behind stable internal IDs, so the two-layer model (heavy: style embeddings from point data; light: per-match recent-form updates) reads from a single, leakage-safe source of truth.

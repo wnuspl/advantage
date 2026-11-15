@@ -1,7 +1,7 @@
 """Does in-match serve form predict the rest of the match? Two tests on the point-by-point
 matches (slam pbp + MCP, 2011+), against a points_v1 run's walk-forward pre-match logits.
 
-    python scripts/inplay_form_test.py [--run 790] [--rebuild]
+    python archive/v1/scripts/inplay_form_test.py [--run 790] [--rebuild]
 
 Test 1, persistence. For each player in each match, residuals of their serve points
 against the pre-match expectation p = sigmoid(x), in logit units r = (k/n - p) / (p (1-p)),
@@ -39,7 +39,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import models_db, points_rating, tuning  # noqa: E402
@@ -118,7 +119,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", type=int, default=790)
     ap.add_argument("--rebuild", action="store_true")
-    ap.add_argument("--json", type=Path, default=ROOT / "results" / "inplay_form_test.json")
+    ap.add_argument("--json", type=Path, default=ARCHIVE / "results" / "inplay_form_test.json")
     args = ap.parse_args(argv)
 
     con = models_db.connect(models_db.MODELS_DB)

@@ -1,10 +1,10 @@
 """Elo sweeps: the same as scripts/sweep.py with model elo_v1 by default.
 
 Kept so existing commands keep working:
-    python scripts/elo_sweep.py sweep [--grid ...] [--name ...]
-    python scripts/elo_sweep.py show [--name ...] [--scope ...]   # Elo runs only
-    python scripts/elo_sweep.py finalize RUN_ID [--save-predictions]
-See scripts/sweep.py for the full help.
+    python archive/v1/scripts/elo_sweep.py sweep [--grid ...] [--name ...]
+    python archive/v1/scripts/elo_sweep.py show [--name ...] [--scope ...]   # Elo runs only
+    python archive/v1/scripts/elo_sweep.py finalize RUN_ID [--save-predictions]
+See archive/v1/scripts/sweep.py for the full help.
 """
 from __future__ import annotations
 

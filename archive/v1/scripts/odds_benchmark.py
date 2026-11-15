@@ -1,6 +1,6 @@
 """Closing-odds benchmark: the de-vigged Pinnacle market vs our walk-forward models.
 
-    python scripts/odds_benchmark.py [--raw data/raw/valuebetennis-20261114] [--runs 187,203,207]
+    python archive/v1/scripts/odds_benchmark.py [--raw data/raw/valuebetennis-20261114] [--runs 187,203,207]
 
 Source: Valuebetennis season CSVs (CC BY 4.0, https://www.valuebetennis.com/en/donnees.htm),
 Pinnacle opening and closing ("last odds recorded before the match") odds. Rows are linked
@@ -25,7 +25,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import models_db, odds                       # noqa: E402

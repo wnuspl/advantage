@@ -1,9 +1,9 @@
 """Heavy layer: fit PCA style vectors, materialize them, and write the sanity report.
 
-    python scripts/style_fit.py fit                     # all scheduled refits + vectors -> models.db
-    python scripts/style_fit.py fit --refit-months 1    # monthly refits (another config hash)
-    python scripts/style_fit.py report                  # docs/style_report.md for the latest fits
-    python scripts/style_fit.py show "Roger Federer" --as-of 2019-07-01
+    python archive/v1/scripts/style_fit.py fit                     # all scheduled refits + vectors -> models.db
+    python archive/v1/scripts/style_fit.py fit --refit-months 1    # monthly refits (another config hash)
+    python archive/v1/scripts/style_fit.py report                  # docs/style_report.md for the latest fits
+    python archive/v1/scripts/style_fit.py show "Roger Federer" --as-of 2019-07-01
 
 `fit` replaces every stored fit (and its vectors) of the same configuration. Vectors are
 materialized for each (player, edition start) where a charted player played a backbone
@@ -21,13 +21,14 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import heavy, models_db                     # noqa: E402
 from tennis.style_features import FEATURES, SIDES       # noqa: E402
 
-REPORT = ROOT / "docs" / "style_report.md"
+REPORT = ARCHIVE / "docs" / "style_report.md"
 WELL_KNOWN = {
     "atp": ["Roger Federer", "Rafael Nadal", "Novak Djokovic", "John Isner", "Daniil Medvedev",
             "Carlos Alcaraz", "Diego Schwartzman", "Nick Kyrgios"],

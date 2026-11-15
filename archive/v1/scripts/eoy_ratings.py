@@ -1,9 +1,9 @@
 """End-of-year ratings: the top N players per tour at the end of each year, one CSV per year.
 
-    python scripts/eoy_ratings.py                               # latest saved Glicko-2 run, every complete year
-    python scripts/eoy_ratings.py --from 2000 --to 2025
-    python scripts/eoy_ratings.py --model elo_v1 --out results/eoy-surface-elo
-    python scripts/eoy_ratings.py --run 132 --top 50 --include-partial
+    python archive/v1/scripts/eoy_ratings.py                               # latest saved Glicko-2 run, every complete year
+    python archive/v1/scripts/eoy_ratings.py --from 2000 --to 2025
+    python archive/v1/scripts/eoy_ratings.py --model elo_v1 --out results/eoy-surface-elo
+    python archive/v1/scripts/eoy_ratings.py --run 132 --top 50 --include-partial
 
 Same replay as scripts/ratings.py: for year Y, every match in editions that started
 strictly before Y-12-20 counts (--cutoff; events starting 27-31 Dec are next season's
@@ -23,7 +23,8 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -66,7 +67,7 @@ def main(argv=None, default_model: str = "glicko2_v1") -> int:
     ap.add_argument("--top", type=int, default=100)
     ap.add_argument("--min-matches", type=int, default=10)
     ap.add_argument("--active-days", type=int, default=365, help="must have played within N days of the cutoff")
-    ap.add_argument("--out", type=Path, default=ROOT / "results" / "eoy-elos")
+    ap.add_argument("--out", type=Path, default=ARCHIVE / "results" / "eoy-elos")
     ap.add_argument("--models", type=Path, default=models_db.MODELS_DB)
     ap.add_argument("--data", type=Path, default=models_db.DATA_DB)
     args = ap.parse_args(argv)

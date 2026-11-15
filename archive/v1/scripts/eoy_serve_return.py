@@ -1,9 +1,9 @@
 """End-of-year serve/return ratings from a points_v1 run: the top N players per tour at the
 end of each year, one CSV per year (the serve/return counterpart of eoy_ratings.py).
 
-    python scripts/eoy_serve_return.py                       # run 790, every complete year
-    python scripts/eoy_serve_return.py --from 1991 --to 2025 --top 200
-    python scripts/eoy_serve_return.py --sort serve          # rank by serve rating
+    python archive/v1/scripts/eoy_serve_return.py                       # run 790, every complete year
+    python archive/v1/scripts/eoy_serve_return.py --from 1991 --to 2025 --top 200
+    python archive/v1/scripts/eoy_serve_return.py --sort serve          # rank by serve rating
 
 Same cutoff and filters as eoy_ratings.py: year Y counts every match in editions that
 started strictly before Y-12-20, players need 10+ rated matches and a match in the year
@@ -45,7 +45,8 @@ from bisect import bisect_left
 from datetime import date, timedelta
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 import numpy as np   # noqa: E402
@@ -144,7 +145,7 @@ def main(argv=None) -> int:
     ap.add_argument("--top", type=int, default=100)
     ap.add_argument("--min-matches", type=int, default=10)
     ap.add_argument("--active-days", type=int, default=365)
-    ap.add_argument("--out", type=Path, default=ROOT / "results" / "eoy-serve-return")
+    ap.add_argument("--out", type=Path, default=ARCHIVE / "results" / "eoy-serve-return")
     ap.add_argument("--models", type=Path, default=models_db.MODELS_DB)
     ap.add_argument("--data", type=Path, default=models_db.DATA_DB)
     args = ap.parse_args(argv)

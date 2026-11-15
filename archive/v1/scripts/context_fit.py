@@ -1,8 +1,8 @@
 """Fit the points_v1 context offsets (milestone 9) on serve-point residuals.
 
-    python scripts/context_fit.py                      # from run 694, fit < 2019, score val
-    python scripts/context_fit.py --iters 4 --record   # record the final setting in models.db
-    python scripts/context_fit.py --set rust_weight=0.7 --set q=2e-5
+    python archive/v1/scripts/context_fit.py                      # from run 694, fit < 2019, score val
+    python archive/v1/scripts/context_fit.py --iters 4 --record   # record the final setting in models.db
+    python archive/v1/scripts/context_fit.py --set rust_weight=0.7 --set q=2e-5
 
 Iteration 0 replays the base run (context off). Each iteration then regresses the
 serve-point residuals of the current run on the context features (weighted least squares,
@@ -33,7 +33,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import calibrate, context, models_db, tuning      # noqa: E402
@@ -88,7 +89,7 @@ def main(argv=None) -> int:
     ap.add_argument("--set", action="append", default=[], help="NAME=VALUE: override a parameter")
     ap.add_argument("--start", type=Path, help="JSON {param: value} of starting context coefficients")
     ap.add_argument("--record", action="store_true", help="record the final setting as a model_run")
-    ap.add_argument("--json", type=Path, default=ROOT / "results" / "context_fit.json")
+    ap.add_argument("--json", type=Path, default=ARCHIVE / "results" / "context_fit.json")
     ap.add_argument("--models", type=Path, default=models_db.MODELS_DB)
     ap.add_argument("--data", type=Path, default=models_db.DATA_DB)
     args = ap.parse_args(argv)

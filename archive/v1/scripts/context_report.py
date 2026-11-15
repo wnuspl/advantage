@@ -1,8 +1,8 @@
 """Context report: do home country, rest, layoffs, in-tournament workload and age move
 results away from what points_v1 expects?
 
-    python scripts/context_report.py                 # run 605, tour-level 2005..2026
-    python scripts/context_report.py --run 605 --from 2005-01-01
+    python archive/v1/scripts/context_report.py                 # run 605, tour-level 2005..2026
+    python archive/v1/scripts/context_report.py --run 605 --from 2005-01-01
 
 Reads the stored walk-forward predictions of a points_v1 run (models.db) and calibrates
 them walk-forward (calibrate.py: per quarter and tour, alpha from the previous 10 years).
@@ -40,7 +40,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import calibrate, models_db, tuning          # noqa: E402
@@ -389,8 +390,8 @@ def main(argv=None) -> int:
     ap.add_argument("--run", type=int, default=605)
     ap.add_argument("--from", dest="date_from", default="2005-01-01")
     ap.add_argument("--to", dest="date_to", default="2026-12-31")
-    ap.add_argument("--json", type=Path, default=ROOT / "results" / "context_report.json")
-    ap.add_argument("--png", type=Path, default=ROOT / "reports" / "context_residuals.png")
+    ap.add_argument("--json", type=Path, default=ARCHIVE / "results" / "context_report.json")
+    ap.add_argument("--png", type=Path, default=ARCHIVE / "reports" / "context_residuals.png")
     ap.add_argument("--models", type=Path, default=models_db.MODELS_DB)
     ap.add_argument("--data", type=Path, default=models_db.DATA_DB)
     args = ap.parse_args(argv)

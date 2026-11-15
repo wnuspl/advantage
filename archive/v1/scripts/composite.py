@@ -1,16 +1,16 @@
 """End-to-end predictions and accuracy of the composite model (light + heavy + matchup).
 
     # one match: P(A beats B), with each layer's contribution
-    python scripts/composite.py predict "Jannik Sinner" "Carlos Alcaraz" --date 2026-06-01 --surface grass
-    python scripts/composite.py predict sackmann_atp:206173 sackmann_atp:207989 --surface clay --model siamese
+    python archive/v1/scripts/composite.py predict "Jannik Sinner" "Carlos Alcaraz" --date 2026-06-01 --surface grass
+    python archive/v1/scripts/composite.py predict sackmann_atp:206173 sackmann_atp:207989 --surface clay --model siamese
 
     # accuracy: every matchup model of the latest matchup run vs surface Elo (132) and Glicko-2 (187),
     # on identical matches; writes docs/composite_report.md
-    python scripts/composite.py eval
-    python scripts/composite.py eval --sweep matchup-20261114T010000 --ref glicko2_raw
+    python archive/v1/scripts/composite.py eval
+    python archive/v1/scripts/composite.py eval --sweep matchup-20261114T010000 --ref glicko2_raw
 
     # consistency: rebuild stored walk-forward predictions through the composite chain
-    python scripts/composite.py check --model bilinear --dates 3
+    python archive/v1/scripts/composite.py check --model bilinear --dates 3
 
 predict uses the matchup run's bundle whose test block contains --date (after the last
 block: the latest bundle). The Glicko-2 state covers editions starting before --date,
@@ -27,7 +27,8 @@ import time
 from datetime import date
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 import numpy as np                                                 # noqa: E402
@@ -35,7 +36,7 @@ import numpy as np                                                 # noqa: E402
 from tennis import composite, composite_eval, elo, models_db      # noqa: E402
 from tennis.matchup import data as mdata                           # noqa: E402
 
-REPORT = ROOT / "docs" / "composite_report.md"
+REPORT = ARCHIVE / "docs" / "composite_report.md"
 BASELINES = {"elo_surface": 132, "glicko2_raw": 187}               # CLAUDE.md milestone 5
 
 

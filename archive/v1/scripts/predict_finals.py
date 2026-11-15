@@ -5,7 +5,7 @@ Markov roll-up, apply the latest walk-forward ATP calibration alpha, then Monte-
 round robin (ATP tiebreak rules approximated: wins, then head-to-head if two tied, then a
 random draw standing in for sets/games %) and the knockouts.
 
-    python scripts/predict_finals.py [--run 605] [--sims 200000]
+    python archive/v1/scripts/predict_finals.py [--run 605] [--sims 200000]
 """
 from __future__ import annotations
 
@@ -19,7 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import calibrate, context, markov, models_db, points_rating, tuning  # noqa: E402
@@ -102,7 +103,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", type=int, default=605)
     ap.add_argument("--sims", type=int, default=200_000)
-    ap.add_argument("--json", type=Path, default=ROOT / "results" / "atp_finals_2026.json")
+    ap.add_argument("--json", type=Path, default=ARCHIVE / "results" / "atp_finals_2026.json")
     args = ap.parse_args(argv)
 
     con = models_db.connect(models_db.MODELS_DB)

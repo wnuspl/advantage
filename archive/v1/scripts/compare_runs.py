@@ -1,8 +1,8 @@
 """Compare rating runs on identical tour-level matches, raw and walk-forward calibrated.
 
-    python scripts/compare_runs.py 187 RUN_ID                     # test block 2022-2026
-    python scripts/compare_runs.py 187 RUN_ID --block val         # validation 2019-2021
-    python scripts/compare_runs.py 187 RUN_ID --stored glicko_cal=203
+    python archive/v1/scripts/compare_runs.py 187 RUN_ID                     # test block 2022-2026
+    python archive/v1/scripts/compare_runs.py 187 RUN_ID --block val         # validation 2019-2021
+    python archive/v1/scripts/compare_runs.py 187 RUN_ID --stored glicko_cal=203
 
 Each rating run (any model in ratingmodels) is replayed from its saved parameters. The
 reference is the CALIBRATED first run. Calibration: per quarter and tour, a scalar alpha
@@ -22,7 +22,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import calibrate, models_db, tuning                       # noqa: E402

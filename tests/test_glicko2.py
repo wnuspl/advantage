@@ -9,7 +9,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
-sys.path.insert(0, str(HERE.parent / "scripts"))
+sys.path.insert(0, str(HERE.parent / "archive" / "v1" / "scripts"))   # archived scripts under test
 sys.path.insert(0, str(HERE))
 
 from tennis import elo, glicko2 as g2, models_db, standings, tuning   # noqa: E402

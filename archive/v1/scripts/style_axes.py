@@ -1,6 +1,6 @@
 """Players at each end of every style axis, for the modern game (JSON for the axis page).
 
-    python scripts/style_axes.py --out axes.json [--as-of 2026-05-26] [--active-since 2024-01-01]
+    python archive/v1/scripts/style_axes.py --out axes.json [--as-of 2026-05-26] [--active-since 2024-01-01]
 
 Uses the latest fit per tour/side as of --as-of. Players qualify with >= --min-matches charted
 matches (whole career, as the vectors are) and a backbone match in an edition starting on or
@@ -15,7 +15,8 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import heavy, models_db                 # noqa: E402

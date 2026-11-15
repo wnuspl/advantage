@@ -1,10 +1,10 @@
 """Ratings at a given date (Elo or Glicko-2), highest first, with player names.
 
-    python scripts/ratings.py                                   # latest saved Elo run, end of data
-    python scripts/ratings.py --model glicko2_v1                # latest saved Glicko-2 run
-    python scripts/ratings.py --run 140 --as-of 2024-06-01      # any run; its model is read from models.db
-    python scripts/ratings.py --as-of 2019-07-01 --tour atp --surface grass --top 20
-    python scripts/ratings.py --run 132 --all --csv ratings.csv
+    python archive/v1/scripts/ratings.py                                   # latest saved Elo run, end of data
+    python archive/v1/scripts/ratings.py --model glicko2_v1                # latest saved Glicko-2 run
+    python archive/v1/scripts/ratings.py --run 140 --as-of 2024-06-01      # any run; its model is read from models.db
+    python archive/v1/scripts/ratings.py --as-of 2019-07-01 --tour atp --surface grass --top 20
+    python archive/v1/scripts/ratings.py --run 132 --all --csv ratings.csv
 
 Replays the chosen run's parameters (from models.db) over every match in editions that
 started strictly before --as-of, then lists each player's rating after their last match.
@@ -30,7 +30,8 @@ import time
 from datetime import date
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import elo, models_db, ratingmodels, standings, tuning   # noqa: E402

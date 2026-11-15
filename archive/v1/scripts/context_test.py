@@ -3,8 +3,9 @@ match-level layer on calibrated 694 (val-selected spec, fit on tour-level 2005-2
 import json, sys
 from pathlib import Path
 import numpy as np
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src")); sys.path.insert(0, str(ROOT / "scripts"))
+ARCHIVE = Path(__file__).resolve().parents[1]   # archive/v1: results, reports, docs
+ROOT = Path(__file__).resolve().parents[3]      # project root: tennis.db, data, src
+sys.path.insert(0, str(ROOT / "src")); sys.path.insert(0, str(ARCHIVE / "scripts"))
 import context_report as cr
 from tennis import calibrate, models_db, tuning
 from tennis.composite_eval import block_of, metrics
@@ -56,5 +57,5 @@ for scope, sel in (("tour", test), ("atp", test & (tours == "atp")), ("wta", tes
         r = metrics(P[a][sel], y[sel], ref=P[b][sel], block=blocks[sel])
         out[scope][f"{a} vs {b}"] = {"ll": r.log_loss, "d": r.d_ref, "se": r.d_se, "q": [r.blocks_won, r.blocks]}
         print(f"  {a:>24} vs {b:<24} ll {r.log_loss:.4f}  diff {r.d_ref:+.4f} ± {r.d_se:.4f}  quarters {r.blocks_won}/{r.blocks}")
-(ROOT / "results" / "context_test.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
+(ARCHIVE / "results" / "context_test.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
 print("wrote results/context_test.json")

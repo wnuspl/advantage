@@ -2,6 +2,8 @@
 
 Written 2026-11-15. This is the starting point for the next phase. It does three things:
 
+> Paths: since the archive move (same day), the v1 scripts named here live in `archive/v1/scripts/`; library modules are unchanged in `src/tennis/`.
+
 1. Records how the best model so far (**run 790**, `points_v1` + context offsets) works, exactly as the code does it, so it can be rebuilt or re-tuned without re-reading the history.
 2. Says what stays (the data layer) and what gets reset (model parameters, scripts, caching).
 3. Lays out the target system: on-demand prediction, rankings, cached state, an HTML front end on a server, Kalshi live odds and alerts.
