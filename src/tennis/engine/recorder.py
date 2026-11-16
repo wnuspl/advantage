@@ -137,6 +137,14 @@ class Recorder:
             (e.event, e.series, e.tour, e.title, s.tournament or None, e.start, e.a.ticker, e.b.ticker, e.a.name,
              e.b.name, e.a.comp, e.b.comp, s.milestone, as_of, as_of))
 
+    def record_alerts(self, poll_id: int, alerts) -> None:
+        """engine.alerts.Alert list for one poll."""
+        with self.con:
+            self.con.executemany(
+                "INSERT INTO alert (poll_id, event, kind, title, message, priority, status, detail) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                [(poll_id, a.event, a.kind, a.title, a.message, a.priority, a.status, a.detail) for a in alerts])
+
     def load_poll(self, poll_id: int) -> Pull:
         r = self.con.execute("SELECT * FROM poll WHERE poll_id = ?", (poll_id,)).fetchone()
         if r is None or r["error"]:
@@ -200,6 +208,7 @@ class Recorder:
                 "failed_polls": q("SELECT COUNT(*) FROM poll WHERE error IS NOT NULL"),
                 "events": q("SELECT COUNT(*) FROM event"), "settled": q("SELECT COUNT(*) FROM settlement"),
                 "snapshots": q("SELECT COUNT(*) FROM snapshot"), "bets": q("SELECT COUNT(*) FROM decision WHERE contracts > 0"),
+                "alerts_sent": q("SELECT COUNT(*) FROM alert WHERE status = 'sent'"),
                 "first_poll": q("SELECT MIN(as_of) FROM poll"), "last_poll": q("SELECT MAX(as_of) FROM poll"),
                 "blob_mb": round(q("SELECT COALESCE(SUM(LENGTH(zlib)), 0) FROM blob") / 1e6, 2)}
 

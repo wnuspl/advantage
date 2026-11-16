@@ -127,3 +127,17 @@ CREATE TABLE IF NOT EXISTS settlement (
   final_score    TEXT,                     -- sets, A first, e.g. '7-6 6-4'
   raw_sha        TEXT REFERENCES blob(sha256)   -- the event + markets + last live details JSON
 ) STRICT;
+
+-- Every decision change the watch detected (track B4, engine/alerts.py), pushed or not.
+CREATE TABLE IF NOT EXISTS alert (
+  alert_id   INTEGER PRIMARY KEY,
+  poll_id    INTEGER NOT NULL REFERENCES poll(poll_id),
+  event      TEXT NOT NULL REFERENCES event(event),
+  kind       TEXT NOT NULL CHECK (kind IN ('new','side','grew','gone')),
+  title      TEXT NOT NULL,
+  message    TEXT NOT NULL,
+  priority   INTEGER NOT NULL,
+  status     TEXT NOT NULL CHECK (status IN ('sent','suppressed','failed','printed')),
+  detail     TEXT NOT NULL DEFAULT ''          -- why suppressed / failed
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_alert_event ON alert (event, poll_id);

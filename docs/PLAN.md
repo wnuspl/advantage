@@ -118,7 +118,11 @@ A single match stays ambiguous; conclusions come from patterns across many.
 Done when: a day of recordings produces a ledger with these reports, and replaying it twice gives the same ledger.
 
 ### B4. Alerts
-New: a push notification when the decision layer fires (channel to decide; ntfy is the low-effort default).
+New: a push notification when the decision layer fires, with ntfy (chosen 2026-11-16).
+
+**Scaffold built 2026-11-16:** `engine/alerts.py`: `ChangeDetector` (per match: new bet, side flipped, stake grew x1.5 since the last alert, alerted bet gone), `Alerter` (per-match cooldown after a push, 'gone' bypasses it; hourly cap, most urgent / largest EV first; failures recorded, never stop the watch), `NtfyNotifier` (JSON publish, UTF-8 names, optional token). Messages carry the trust tags (last rated N days ago, loose name, surface from history / unknown, stale, in play). Every change goes to live.db's `alert` table as sent / suppressed (with why) / failed / printed. `scripts/watch.py run --ntfy` pushes (topic `NTFY_TOPIC` in `.env`; without `--ntfy` changes are printed and recorded only); `watch.py test-alert` sends one test push. Tests: `tests/test_alerts.py` (fake ntfy, nothing sent).
+
+Defaults, to calibrate on recorded data (B3b and the in-play study): min stake $5, min EV $0.50, grow x1.5, cooldown 15 min, 12 pushes/hour, priority high at EV >= $10. Detector state is in memory: a restarted watch re-alerts current bets within the cap. Open: alert only on non-stale bets by default once Challenger data is current; an in-play alert path once feed lag is measured.
 
 ### B5. Scorecard
 Adds back, optionally, the closing-odds benchmark (`odds.py`, `xlsx_lite.py`, `odds_benchmark.py`) for historical market log loss. New: live model vs market log loss pre-match and in play, per predictor, and the feed-lag study.
@@ -133,6 +137,6 @@ Elo, Glicko-2 and their sweeps/standings (`elo`, `glicko2`, `ratingmodels`, `sta
 A1 and B1 first, in parallel (A1 is what makes B's numbers mean something). Then A2 -> A3 (the retrain) alongside B3a -> B2 -> B3b. Then A4, A5, B4, B5. Each milestone is one commit with tests passing.
 
 ## Open decisions
-- Alert channel (B4).
+- Alert channel (B4): ntfy (decided 2026-11-16).
 - Live store: `live.db` (B2), gitignored, never rebuilt (additive schema).
 - Paper-ledger defaults (B3a/B3b): 1/4 Kelly, $1000, as in v1, unless told otherwise.
