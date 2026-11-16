@@ -40,7 +40,7 @@ from tennis.engine.alerts import (NTFY_SERVER, Alert, AlertConfig, Alerter,   # 
 from tennis.engine.decide import add_policy_args, decide_all, policy_from_args   # noqa: E402
 from tennis.engine.live import Retriever, fetch_pull, load_predictor          # noqa: E402
 from tennis.engine.recorder import LIVE_DB, Recorder                          # noqa: E402
-from tennis.engine.scorecard import format_cards, scorecard, to_json          # noqa: E402
+from tennis.engine.scorecard import format_cards, phone_summary, scorecard, to_json  # noqa: E402
 
 MAX_SETTLE = 20          # settlement lookups per poll
 
@@ -177,8 +177,13 @@ def status(args) -> int:
 def card(args) -> int:
     rec = Recorder(args.db)
     cards = scorecard(rec.con)
+    counts = rec.counts()
     rec.close()
     print(json.dumps(to_json(cards), indent=1, default=float) if args.json else format_cards(cards))
+    if args.ntfy:                                   # daily push (a timer on the server runs this)
+        title, message = phone_summary(cards, counts)
+        notifier(args).send(Alert(change=None, title=title, message=message,  # type: ignore[arg-type]
+                                  tags=["bar_chart"]))
     return 0
 
 
@@ -220,6 +225,9 @@ def main(argv=None) -> int:
     s.set_defaults(fn=status)
     c = sub.add_parser("scorecard", help="model vs market log loss pre-match and in play, feed lag (B5)")
     c.add_argument("--json", action="store_true")
+    c.add_argument("--ntfy", action="store_true", help="also push a short summary to the ntfy topic")
+    c.add_argument("--ntfy-topic", help="default: NTFY_TOPIC from the environment or .env")
+    c.add_argument("--ntfy-server", default=NTFY_SERVER)
     c.set_defaults(fn=card)
     args = ap.parse_args(argv)
     return args.fn(args)

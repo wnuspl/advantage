@@ -172,3 +172,23 @@ def format_cards(cards: list[PredictorCard]) -> str:
     lines.append("diff = model - market log loss (negative: model better); in play weights each match once.")
     lines.append("feed lag: a peak at k < 0 means the market moved before the feed showed the score.")
     return "\n".join(lines)
+
+
+def phone_summary(cards: list[PredictorCard], counts: dict | None = None) -> tuple[str, str]:
+    """(title, message) for a daily push: short enough for a phone notification."""
+    if not cards:
+        return "advantage: scorecard", "no settled, priced matches in live.db yet"
+    c = max(cards, key=lambda x: x.settled)          # the predictor with the most data
+    lines = [f"{c.predictor}: {c.settled} settled matches"]
+    for name, p in (("pre-match", c.pre_match), ("in play", c.in_play)):
+        if p.n:
+            se = "" if math.isnan(p.se) else f" ± {p.se:.3f}"
+            lines.append(f"{name}: model - market {p.d:+.3f}{se} (n {p.n})")
+    lg = c.lag
+    if lg.n_steps:
+        lines.append(f"feed lag corr k=-1 {lg.corr.get(-1, float('nan')):+.2f}, "
+                     f"k=0 {lg.corr.get(0, float('nan')):+.2f} ({lg.n_steps} steps)")
+    if counts:
+        lines.append(f"last poll {counts.get('last_poll', '?')}; alerts sent {counts.get('alerts_sent', 0)}")
+    lines.append("negative diff = model beat the market")
+    return f"advantage: scorecard, {c.settled} settled", "\n".join(lines)

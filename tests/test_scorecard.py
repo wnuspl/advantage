@@ -12,7 +12,7 @@ sys.path.insert(0, str(HERE.parent / "src"))
 
 from tennis.engine.decide import Policy                               # noqa: E402
 from tennis.engine.recorder import Recorder                           # noqa: E402
-from tennis.engine.scorecard import feed_lag, format_cards, scorecard  # noqa: E402
+from tennis.engine.scorecard import feed_lag, format_cards, phone_summary, scorecard  # noqa: E402
 
 T0 = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)
 
@@ -83,6 +83,12 @@ class ScorecardTest(unittest.TestCase):
         self.assertEqual((cards["m2"].settled, cards["m2"].pre_match.n), (1, 1))
         self.assertIn("## m1: 2 settled", format_cards(list(cards.values())))
         self.assertEqual(format_cards([]), "no settled, priced matches in live.db yet")
+        title, msg = phone_summary(list(cards.values()), {"last_poll": "t", "alerts_sent": 3})
+        self.assertEqual(title, "advantage: scorecard, 2 settled")            # m1: the most data
+        self.assertIn("m1: 2 settled", msg)
+        self.assertIn(f"pre-match: model - market {c.pre_match.d:+.3f}", msg)
+        self.assertIn("alerts sent 3", msg)
+        self.assertEqual(phone_summary([])[1], "no settled, priced matches in live.db yet")
 
     def test_feed_lag_detects_a_leading_market(self):
         # the market moves one poll before the model (the feed shows the score a poll late)
