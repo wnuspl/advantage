@@ -150,6 +150,19 @@ class RunsTest(unittest.TestCase):
             con.close()
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_dominance_bins_and_subset(self):
+        from tennis.train import diagnose
+        p = pr.PointsParams()
+        res = pr.run(self.prep.m, p)
+        s = runs.Scored(self.prep, res.p_winner, self.block)
+        sub = s.subset(s.select("tour_atp"))
+        self.assertEqual(len(sub.y), s.scores()["tour_atp"].n)
+        dom = diagnose.serve_dominance(res, p, np.asarray(sub.idx))
+        rows = diagnose.by_dominance(sub, dom, bins=4)
+        self.assertEqual(sum(r["n"] for r in rows), len(sub.y))
+        self.assertTrue(all(r["atp_share"] == 1.0 for r in rows))
+        self.assertIn("slope cal", diagnose.format_rows(rows))
+
     def test_compare_table(self):
         sc = {lab: runs.Scored(self.prep, pr.run(self.prep.m, p).p_winner, self.block)
               for lab, p in (("a", pr.PointsParams()), ("b", pr.PointsParams(unc=0.0)))}
@@ -236,6 +249,7 @@ class TrainCliTest(unittest.TestCase):
             con.close()
         self.assertEqual(mid, "points_v2")
         self.assertIn("[tour_atp]", self.cli("compare", str(self.base), str(rid)))
+        self.assertIn("[wta]", self.cli("diagnose", str(self.base), "--bins", "2"))
 
 
 if __name__ == "__main__":

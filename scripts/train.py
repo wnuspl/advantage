@@ -24,11 +24,13 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from tennis import context, models_db, points_rating                 # noqa: E402
-from tennis.train import compare, context_fit, runs                   # noqa: E402
+from tennis.train import compare, context_fit, diagnose, runs                   # noqa: E402
 from tennis.train.data import BLOCKS, prepare                         # noqa: E402
 
 
@@ -90,6 +92,11 @@ def main(argv=None) -> int:
     cp.add_argument("--block", choices=["val", "test"], default="val")
     cp.add_argument("--per-tour-alpha", action="store_true", help="calibrate per tour, not per (tour, best-of)")
 
+    dg = sub.add_parser("diagnose", help="calibration by serve dominance (x_A + x_B), per tour, raw vs calibrated")
+    dg.add_argument("run_id", type=int)
+    dg.add_argument("--block", choices=["val", "test"], default="val")
+    dg.add_argument("--bins", type=int, default=5)
+
     fz = sub.add_parser("finalize", help="score the held-out test block (once per model)")
     fz.add_argument("run_ids", type=int, nargs="+")
     fz.add_argument("--save-predictions", action="store_true")
@@ -122,7 +129,7 @@ def main(argv=None) -> int:
             _, params = runs.params_of(con, args.run_id)
             res = points_rating.run(prep.m, params)
             print(f"run {args.run_id}: val {BLOCKS['val'][0]}..{BLOCKS['val'][1]}")
-            _print_scores(runs.Scored(prep, res.p_winner, BLOCKS["val"]).scores())
+            _print_scores(runs.Scored(prep, res.p_winner, BLOCKS["val"], raw_tours=params.raw_tours()).scores())
         elif args.cmd == "sweep":
             base = runs.params_of(con, args.base)[1] if args.base else None
             grid = runs.expand_grid(json.loads(args.grid), base)
@@ -138,7 +145,7 @@ def main(argv=None) -> int:
             start = replace(start, **_overrides(args.set))
             if args.zero_context:
                 start = start.with_context([0.0] * context.K, [0.0] * context.K)
-            ref = runs.Scored(prep, points_rating.run(prep.m, base).p_winner, BLOCKS["val"])
+            ref = runs.Scored(prep, points_rating.run(prep.m, base).p_winner, BLOCKS["val"], raw_tours=base.raw_tours())
             print(f"reference: run {args.base} as recorded, val cal {ref.scores()['tour_cal'].log_loss:.4f}")
             p, hist, res, scd = context_fit.fit(prep, start, iters=args.iters, fit_from=args.fit_from,
                                                 cutoff=args.cutoff, tour_only=args.tour_only,
@@ -164,6 +171,18 @@ def main(argv=None) -> int:
             print(f"\n{args.block} {BLOCKS[args.block][0]}..{BLOCKS[args.block][1]}; reference: "
                   f"{next(iter(sc_))} calibrated")
             print(compare.format_table(compare.table(sc_)))
+        elif args.cmd == "diagnose":
+            _, params = runs.params_of(con, args.run_id)
+            res = points_rating.run(prep.m, params)
+            scd = runs.Scored(prep, res.p_winner, BLOCKS[args.block], raw_tours=params.raw_tours())
+            print(f"run {args.run_id}, {args.block}: tour-level matches by serve dominance")
+            for tour in (None, "atp", "wta"):
+                sel = scd.select("tour" if tour is None else f"tour_{tour}")
+                sub_ = scd.subset(sel)
+                dom = diagnose.serve_dominance(res, params, np.asarray(sub_.idx))
+                print(f"\n[{tour or 'tour'}]")
+                print(diagnose.format_rows(diagnose.by_dominance(sub_, dom, args.bins)))
+            _print_scores(scd.scores())
         elif args.cmd == "finalize":
             for rid in args.run_ids:
                 s = runs.finalize(con, prep, rid, force=args.force, save_predictions=args.save_predictions)

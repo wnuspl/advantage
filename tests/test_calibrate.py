@@ -64,6 +64,14 @@ class CalibrateTest(unittest.TestCase):
         self.assertEqual(al["wta"], 1.0)
         self.assertEqual(calibrate.alpha_for({}, "atp", 3), 1.0)
 
+    def test_raw_tours_are_left_alone(self):
+        p, idx, alphas = calibrate.calibrated(self.m, self.pw, "2021-01-01", "2021-12-31", raw_tours=("atp",))
+        np.testing.assert_allclose(p, [self.pw[i] for i in idx], rtol=0, atol=1e-12)
+        self.assertTrue(all(v == 1.0 for v in alphas.values()))
+        p2, _, _ = calibrate.calibrated(self.m, self.pw, "2021-01-01", "2021-12-31", raw_tours=("wta",))
+        p3, _, _ = calibrate.calibrated(self.m, self.pw, "2021-01-01", "2021-12-31")
+        np.testing.assert_array_equal(p2, p3)                      # no WTA rows: unchanged
+
     def test_orientation_does_not_change_alpha(self):
         rng = np.random.default_rng(1)
         pw = 0.3 + 0.6 * rng.random(500)

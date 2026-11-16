@@ -59,11 +59,13 @@ def expand_grid(spec, base: points_rating.PointsParams | None = None) -> list[po
 class Scored:
     """One run's predictions on one block: raw and calibrated, canonical orientation."""
 
-    def __init__(self, prep: Prepared, p_winner, block: tuple[str, str], by_best_of: bool = True):
+    def __init__(self, prep: Prepared, p_winner, block: tuple[str, str], by_best_of: bool = True,
+                 raw_tours=()):
         lo, hi = block
         self.block = block
         cal, idx, self.alphas = calibrate.calibrated(prep.m, p_winner, lo, hi,
-                                                     best_of=prep.best_of if by_best_of else None)
+                                                     best_of=prep.best_of if by_best_of else None,
+                                                     raw_tours=raw_tours)
         self.idx = idx
         self.raw, self.y = oriented(p_winner, prep.winner_is_p1, idx)
         flag = np.array([prep.winner_is_p1[i] for i in idx], dtype=float)
@@ -72,6 +74,16 @@ class Scored:
         self.quarter = calibrate.block_of([prep.m.start[i] for i in idx])
         all_idx = prep.indices(lo, hi, "all")
         self.all_raw, self.all_y = oriented(p_winner, prep.winner_is_p1, all_idx)
+
+    def subset(self, sel) -> "Scored":
+        """The tour-level rows where boolean mask `sel` holds (no 'all' scope)."""
+        out = Scored.__new__(Scored)
+        out.block, out.alphas = self.block, self.alphas
+        out.idx = [i for i, k in zip(self.idx, sel) if k]
+        for a in ("raw", "y", "cal", "tour", "quarter"):
+            setattr(out, a, getattr(self, a)[sel])
+        out.all_raw, out.all_y = self.all_raw[:0], self.all_y[:0]
+        return out
 
     def select(self, scope: str) -> np.ndarray:
         base = scope.removesuffix("_cal")
@@ -116,7 +128,7 @@ def sweep(con, prep: Prepared, grid: list, *, sweep_id: str, block=BLOCKS["val"]
     for g, (key, members) in enumerate(groups.items(), 1):
         res = points_rating.run(prep.m, key)
         for p in members:
-            sc = Scored(prep, points_rating.predict(res, p), block).scores()
+            sc = Scored(prep, points_rating.predict(res, p), block, raw_tours=p.raw_tours()).scores()
             rid = record(con, p, sc, block=block, model_id=model_id, sweep_id=sweep_id)
             done += 1
             out.append((rid, sc[PRIMARY]))
@@ -160,7 +172,7 @@ def finalize(con, prep: Prepared, run_id: int, *, block=BLOCKS["test"], force: b
         raise ValueError(f"run {run_id} already has test metrics: test is scored once per model")
     _, params = params_of(con, run_id)
     res = points_rating.run(prep.m, params)
-    scores = Scored(prep, res.p_winner, block).scores()
+    scores = Scored(prep, res.p_winner, block, raw_tours=params.raw_tours()).scores()
     write_metrics(con, run_id, "test", block, scores)
     if save_predictions:
         save(con, prep, run_id, res)

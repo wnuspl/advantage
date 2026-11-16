@@ -133,6 +133,17 @@ class PredictorTest(unittest.TestCase):
         self.assertEqual(raw.p_a, p.p_raw)
         self.assertTrue(raw.model.endswith("/raw"))
 
+    def test_per_tour_calibration_switch(self):
+        self.pp.model.alphas = {"atp": 0.8, "wta": 0.8}
+        cal = self.pp.predict(self.q)
+        self.assertNotEqual(cal.p_a, cal.p_raw)
+        md = ModelState(**{**self.pp.model.__dict__, "params": pr.PointsParams(**{**P790.as_dict(), "cal_atp": 0.0})})
+        raw = PointsPredictor(md).predict(self.q)
+        self.assertEqual(raw.p_a, raw.p_raw)
+        self.assertEqual(raw.detail["alpha"], 1.0)
+        self.assertEqual(md.params.raw_tours(), ("atp",))
+        self.assertEqual(md.params.update_key(), P790.update_key())    # prediction-only
+
     def test_rating_day_is_the_edition_start(self):
         late = self.pp.predict(MatchQuery(**{**self.q.__dict__, "on": "2020-03-08"}))
         self.assertEqual(late.detail["rating_day"], "2020-03-02")

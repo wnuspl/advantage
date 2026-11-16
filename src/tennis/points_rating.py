@@ -139,6 +139,8 @@ class PointsParams:
                                   # back from a > 12-week break (1 = full weight)
     blend: float = 1.0           # prediction: multiplier on the surface deviations
     unc: float = 1.0              # prediction: uncertainty shrink (0 = off)
+    cal_atp: float = 1.0          # prediction: walk-forward calibration of ATP matches (0 = raw)
+    cal_wta: float = 1.0          # ... of WTA matches (calibrate.calibrated / engine.predict)
     # registry compatibility (standings, Elo/Glicko-style fields); unused here
     init: float = 0.0
     surface_init: float = 0.0
@@ -147,7 +149,11 @@ class PointsParams:
         return asdict(self)
 
     def update_key(self) -> "PointsParams":
-        return replace(self, blend=1.0, unc=1.0)
+        return replace(self, blend=1.0, unc=1.0, cal_atp=1.0, cal_wta=1.0)
+
+    def raw_tours(self) -> tuple[str, ...]:
+        """Tours whose predictions are left uncalibrated."""
+        return tuple(t for t in ("atp", "wta") if not getattr(self, f"cal_{t}"))
 
     def context_betas(self, tour: str = "atp") -> tuple[np.ndarray, np.ndarray]:
         """(beta_serve, beta_ret) aligned with context.FEATURES for a tour's matches."""

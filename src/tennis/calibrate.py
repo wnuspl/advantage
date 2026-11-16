@@ -107,10 +107,11 @@ def alpha_for(alphas: dict, tour: str, best_of: int | None = None) -> float:
 
 
 def calibrated(m: Matches, p_winner, date_from: str, date_to: str, *, years: int = YEARS,
-               step_months: int = 3, best_of=None, min_rows: int = MIN_ROWS
+               step_months: int = 3, best_of=None, min_rows: int = MIN_ROWS, raw_tours=()
                ) -> tuple[np.ndarray, list[int], dict]:
     """Calibrated P(winner wins) for the tour-level scored matches with edition start in
     [date_from, date_to], each with the alpha of its own block and tour (and best-of).
+    Tours in `raw_tours` get alpha 1 (left raw).
     Returns (p_cal, idx, alphas {(tour, block) or (tour, block, best_of): alpha})."""
     idx = scope_indices(m, date_from, date_to, "tour")
     tours = np.array([m.tour[i] for i in idx])
@@ -123,6 +124,8 @@ def calibrated(m: Matches, p_winner, date_from: str, date_to: str, *, years: int
         here = blocks == blk
         tb = sorted(set(tours[here].tolist()))
         al = alphas_at(m, p_winner, str(blk), years=years, best_of=best_of, min_rows=min_rows, tours=tb)
+        for t in raw_tours:
+            al = {k: (1.0 if k == t or (isinstance(k, tuple) and k[0] == t) else v) for k, v in al.items()}
         for tour in tb:
             s = here & (tours == tour)
             alphas[(tour, str(blk))] = al[tour]

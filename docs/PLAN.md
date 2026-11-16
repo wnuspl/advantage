@@ -54,6 +54,14 @@ Nothing to add back; this is the work itself:
 
 Done when: `points_v2` beats run 790 on val, test is scored once, and A1's predictor switches to it only if test holds.
 
+**Done 2026-11-15: no gain, predictor stays on run 790.** Data as in tennis.db (results through editions starting 2026-11-09; no new AcesAPI pull). Val (2019-21, tour, calibrated per (tour, best-of)):
+- Sweeps `v2-r1` (90 settings from run 790: `q`, `obs_var`, `v_init`, `score_weight` x `unc` x `blend`) and `v2-r2` (36 around the best): best is `score_weight` 1.0, `blend` 0.6, `unc` 1.5 (run 905), 0.5894 vs 0.5899. `q`, `obs_var`, `v_init` are flat around run 790's values.
+- Context: 6 more residual iterations from run 790 (run 848) and 2 from run 905 (run 930) gain nothing (-0.0001). The remaining steps are the age serve/return split, which is weakly identified.
+- Serve dominance (`train.py diagnose`): no trend in calibration along `x_A + x_B` (ATP slopes 0.88-1.18 across quintiles, no order). The one pattern is WTA: calibration helps the least serve-dominated fifth and hurts the middle.
+- WTA raw beat calibrated on val (0.5901 vs 0.5907), so the candidate left WTA raw (`cal_wta` 0, new prediction-only params `cal_atp` / `cal_wta`): run 931, val 0.5892 vs 0.5899 (-0.0007).
+
+Test 2022-26, scored once (run 931; 23,269 tour matches): **0.5942 vs run 790 0.5942, -0.0000 ± 0.0003** (9/20 quarters). ATP -0.0005 ± 0.0003 (10/20); WTA +0.0005 ± 0.0006: on test, calibration helps WTA (run 790 WTA calibrated 0.5929 vs raw 0.5933), the reverse of val, and run 931's lower `unc` leaves WTA overconfident (slope 0.895). Lessons: the val gains were val overfitting at the 0.0005 level; WTA raw vs calibrated flips between eras, so keep calibrating both tours; the parameters of run 790 are at a flat optimum, and further pre-match gains need new information (A4 in-play, or new features), not re-tuning.
+
 ### A4. In-play model
 Adds back:
 - **In-play evaluation** (from `inplay_form_test.py`): a harness scoring point/game/set-end log loss on slam point-by-point and MCP, walk-forward.

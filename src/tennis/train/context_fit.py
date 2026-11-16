@@ -71,7 +71,7 @@ def fit(prep: Prepared, start: points_rating.PointsParams, *, iters: int = 3, fi
     res = sc = None
     for it in range(iters + 1):
         res = points_rating.run(m, p)
-        sc = Scored(prep, res.p_winner, block)
+        sc = Scored(prep, res.p_winner, block, raw_tours=p.raw_tours())
         s = sc.scores(ref)
         history.append({"iter": it, "params": p.as_dict(),
                         "scores": {k: {"log_loss": v.log_loss, "d": v.d_ref, "se": v.d_se,

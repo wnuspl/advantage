@@ -193,8 +193,9 @@ class PointsPredictor:
             ob = float(c[b] @ bs - c[a] @ br)
             xa, xb = xa + oa, xb + ob
         p_raw = points_rating.win_probability(st, xa, xb, va, vb, q.best_of, q.final)
-        alpha = calibrate.alpha_for(md.alphas, q.tour, q.best_of) if self.calibrated else 1.0
-        p_cal = calibrate.apply(p_raw, alpha) if self.calibrated else p_raw
+        cal = self.calibrated and q.tour not in p.raw_tours()
+        alpha = calibrate.alpha_for(md.alphas, q.tour, q.best_of) if cal else 1.0
+        p_cal = calibrate.apply(p_raw, alpha) if cal else p_raw
         return {"x_a": xa, "x_b": xb, "v_a": va, "v_b": vb, "ctx_a": oa, "ctx_b": ob,
                 "serve_a": _sig(xa), "serve_b": _sig(xb), "p_raw": p_raw, "p_prematch": p_cal,
                 "alpha": alpha, "rating_day": rating_day, "surface": surface,

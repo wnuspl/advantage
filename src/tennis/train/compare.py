@@ -17,7 +17,7 @@ def replay(con, prep: Prepared, run_ids, block=BLOCKS["val"], by_best_of: bool =
     for rid in run_ids:
         model_id, params = params_of(con, rid)
         res = points_rating.run(prep.m, params)
-        out[f"{rid}:{model_id}"] = Scored(prep, res.p_winner, block, by_best_of)
+        out[f"{rid}:{model_id}"] = Scored(prep, res.p_winner, block, by_best_of, raw_tours=params.raw_tours())
         log(f"run {rid} ({model_id}) replayed")
     return out
 
