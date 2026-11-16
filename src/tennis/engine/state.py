@@ -80,8 +80,8 @@ def key_maps(con, alias: str = "data") -> dict:
 def code_hash(params) -> str:
     h = hashlib.sha256(VERSION.encode())
     src = Path(__file__).resolve().parents[1]
-    for f in CODE:
-        h.update((src / f).read_bytes())
+    for f in CODE:                       # line endings normalized: snapshots move between Windows and Linux
+        h.update((src / f).read_bytes().replace(b"\r\n", b"\n"))
     h.update(json.dumps(params.as_dict(), sort_keys=True).encode())
     return h.hexdigest()
 
@@ -89,7 +89,7 @@ def code_hash(params) -> str:
 def fingerprint(con, cutoff: str, params, alias: str = "data",
                 overrides: Path = models_db.ROOT / "data" / "overrides.csv") -> dict:
     h = hashlib.sha256()
-    h.update(overrides.read_bytes() if overrides.exists() else b"")
+    h.update(overrides.read_bytes().replace(b"\r\n", b"\n") if overrides.exists() else b"")
     for row in con.execute(f"""SELECT source, file_relpath, sha256 FROM {alias}.ingest_snapshot
                                WHERE source NOT LIKE 'acesapi%' ORDER BY source, file_relpath, sha256"""):
         h.update(repr(row).encode())

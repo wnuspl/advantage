@@ -345,8 +345,8 @@ def cache_key(con, run_id: int, params, as_of: str | None, today: str, alias: st
     h.update(repr(con.execute(
         f"SELECT COUNT(*), MAX(start_date), TOTAL(LENGTH(surface)) FROM {alias}.tournament_edition").fetchone()).encode())
     src = Path(__file__).resolve().parents[1]
-    for f in CODE:
-        h.update((src / f).read_bytes())
+    for f in CODE:                       # line endings normalized: a Windows-built cache loads on Linux
+        h.update((src / f).read_bytes().replace(b"\r\n", b"\n"))
     h.update(json.dumps(params.as_dict(), sort_keys=True).encode())
     h.update(f"{run_id} {as_of} {calibrate.block_start(today)} {today[:4]}".encode())
     return h.hexdigest()
