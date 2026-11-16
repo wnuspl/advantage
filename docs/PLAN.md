@@ -135,6 +135,17 @@ Defaults, to calibrate on recorded data (B3b and the in-play study): min stake $
 ### B5. Scorecard
 Adds back, optionally, the closing-odds benchmark (`odds.py`, `xlsx_lite.py`, `odds_benchmark.py`) for historical market log loss. New: live model vs market log loss pre-match and in play, per predictor, and the feed-lag study.
 
+**Built 2026-11-16 (moved ahead of B3b: the historical half needs no watch data):**
+- `src/tennis/odds.py` (Valuebetennis reader, linker, de-vig, blend, backtest; the tennis-data xlsx reader and the simulation stay archived) and `scripts/odds_benchmark.py --runs 790,...`: points runs are replayed in process and scored raw and calibrated, other runs read from `models.db`; nothing written to `models.db`. The blend `y ~ a*logit(close) + b*logit(model)` is also reported as `model_weight = b/(a+b)`, the number `engine.decide` uses.
+- `src/tennis/engine/scorecard.py`, `scripts/watch.py scorecard [--json]`: per predictor, on settled matches in live.db, model vs market log loss pre-match (last snapshot before going live) and in play (each match weighted once), and the feed-lag correlation (model move vs market move k polls later; a peak at k < 0 = the market moves before the feed shows the score). Resolution is the poll spacing.
+- Tests: `tests/test_odds.py` (hand-made Valuebetennis fixture), `tests/test_scorecard.py`.
+
+**Historical result (2026-11-16, `odds_benchmark.py --runs 790,931,203`, `models/odds/benchmark_790_931_203.json`):** 26,308 rows linked; 86.4% of tour-level 2022-26 matches have a Pinnacle close; 18,268 identical matches (the same set as v1's benchmark).
+- Pinnacle close 0.5864; run 790 calibrated **0.5949 (+0.0085 ± 0.0011)**, raw 0.5954; run 931 the same; Glicko-2 (203) 0.6065 (+0.0201). The gap is down from 0.0138 (run 602) and 0.020 (Glicko); steady by year (+0.007 to +0.012) and tour (ATP +0.0084, WTA +0.0086). The opening line is +0.0040.
+- Blend: **b is now positive** (790 cal b = +0.15, z = 3.0; Glicko's was -0.22): the model carries information the close does not fully price, in sample. Walk-forward by year it still adds nothing usable: held-out gain +0.00004 ± 0.00026 nats (break-even against Pinnacle is about 0.0004). The implied `model_weight` is **0.15-0.19** in every year (all four points variants), against the live default of 0.3 (lowered to 0.15 on 2026-11-16).
+- Backtest at the close: -1.4% to -2.2% ROI (± 1.1%), about the margin. **At the opening line: +2.3% to +3.8% ± 1.5% with a 5% EV threshold** (raw runs about 2.2-2.6 SE; eight correlated variants, so treat as a lead): the close moves toward the model, i.e. the model has closing-line value. Opening-odds capture times are not documented, so this is not a backtest anyone could have traded. For Kalshi it says where to look: early prices (before the line settles) and B3b's line-movement report.
+- Pre-match verdict: about 0.0085 behind the sharp close and adding nothing out of sample; the edge, if any, is against early or soft prices, not the close.
+
 ## Later (C)
 Rankings at any date (from `eoy_serve_return.py`'s logic on A5 snapshots), the web app, Challenger coverage (a new results source; the shelved `ingest_daily.py` only if that source is a scraper), Kalshi live serve points as a stats source after 2026-05.
 

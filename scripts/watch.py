@@ -5,6 +5,7 @@ Read-only against Kalshi: nothing here places orders.
     python scripts/watch.py run --ntfy                                     # + push alerts (topic: NTFY_TOPIC in .env)
     python scripts/watch.py test-alert                                     # send one test push
     python scripts/watch.py status                                         # what live.db holds
+    python scripts/watch.py scorecard [--json]                             # model vs market on settled matches (B5)
     python scripts/watch.py at KXATPMATCH-26NOV16ALCTIA --time 2026-11-16T12:00:00Z
 
 Each poll: open events of every match series, milestone links (requested once per event),
@@ -39,6 +40,7 @@ from tennis.engine.alerts import (NTFY_SERVER, Alert, AlertConfig, Alerter,   # 
 from tennis.engine.decide import add_policy_args, decide_all, policy_from_args   # noqa: E402
 from tennis.engine.live import Retriever, fetch_pull, load_predictor          # noqa: E402
 from tennis.engine.recorder import LIVE_DB, Recorder                          # noqa: E402
+from tennis.engine.scorecard import format_cards, scorecard, to_json          # noqa: E402
 
 MAX_SETTLE = 20          # settlement lookups per poll
 
@@ -172,6 +174,14 @@ def status(args) -> int:
     return 0
 
 
+def card(args) -> int:
+    rec = Recorder(args.db)
+    cards = scorecard(rec.con)
+    rec.close()
+    print(json.dumps(to_json(cards), indent=1, default=float) if args.json else format_cards(cards))
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--db", type=Path, default=LIVE_DB)
@@ -208,6 +218,9 @@ def main(argv=None) -> int:
     a.set_defaults(fn=at)
     s = sub.add_parser("status", help="what live.db holds")
     s.set_defaults(fn=status)
+    c = sub.add_parser("scorecard", help="model vs market log loss pre-match and in play, feed lag (B5)")
+    c.add_argument("--json", action="store_true")
+    c.set_defaults(fn=card)
     args = ap.parse_args(argv)
     return args.fn(args)
 

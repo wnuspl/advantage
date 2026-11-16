@@ -113,7 +113,7 @@ def decide_all(rows: list[MarketSnapshot], books: dict, pol: Policy) -> list[Dec
 
 
 CLI_BANKROLL = 10.0                   # scripts/live.py, scripts/watch.py default (user, 2026-11-15)
-CLI_MODEL_WEIGHT = 0.3               # until fitted on settled Kalshi matches (user, 2026-11-15)
+CLI_MODEL_WEIGHT = 0.15              # B5 Pinnacle blend fit 0.15-0.19 (2026-11-16); refit on settled Kalshi matches
 
 
 def add_policy_args(ap) -> None:

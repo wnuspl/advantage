@@ -1,0 +1,6 @@
+﻿match_id;date;tournoi;tournoi_id;categorie;genre;surface;tour;joueur1;joueur1_id;joueur2;joueur2_id;cote1_ouverture;cote2_ouverture;cote1_cloture;cote2_cloture;vainqueur_id;score;duree_min
+1;"2025-01-06 00:00:00";"Brisbane";1;"Main tour";atp;dur;5;"Félix Auger-Aliassime";11;"Holger Rune";12;1.80;2.05;1.70;2.20;11;"6-4 6-4";
+2;"2025-01-07 00:00:00";"Brisbane";1;"Main tour";atp;dur;4;"Grigor Dimitrov";13;"Felix Auger Aliassime";11;2.50;1.55;;;11;"6-3 6-2";
+3;"2025-01-07 00:00:00";"Nonthaburi";2;"Challenger";atp;dur;5;"A B";14;"C D";15;1.5;2.5;1.5;2.5;14;"6-0 6-0";
+4;"2025-01-08 00:00:00";"Brisbane";1;"Main tour";atp;dur;3;"Holger Rune";12;"Grigor Dimitrov";13;1.9;1.9;1.9;1.9;;"";
+5;"2025-01-08 00:00:00";"Brisbane";1;"Main tour";atp;dur;3;"Jannik Sinner";16;"Holger Rune";12;1.2;4.5;1.25;4.2;12;"6-4 ret.";
