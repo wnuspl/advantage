@@ -204,6 +204,40 @@ class OverrideTest(unittest.TestCase):
         finally:
             ws.cleanup()
 
+    def test_reassign_moves_a_span_of_backbone_matches(self):
+        # 100007's 2020-01-20 Australian Open match belongs to 100004; his 2020-01-06 one stays
+        ws = Workspace("player,sackmann_atp,100007@2020-01-15,reassign,sackmann_atp,100004,shared id\n")
+        try:
+            ws.build()
+            with closing(ws.connect()) as con:
+                pid = lambda k: con.execute("SELECT player_id FROM player_xref WHERE source='sackmann_atp' "   # noqa: E731
+                                            "AND source_key=?", (k,)).fetchone()[0]
+                old, new = pid("100007"), pid("100004")
+                starts = lambda p: [r[0] for r in con.execute(   # noqa: E731
+                    """SELECT e.start_date FROM matches m JOIN tournament_edition e USING (edition_id)
+                       WHERE ? IN (m.winner_id, m.loser_id)""", (p,))]
+                self.assertEqual((starts(old), starts(new)), (["2020-01-06"], ["2020-01-20"]))
+                self.assertEqual(con.execute(
+                    """SELECT s.player_id FROM match_player_stats s JOIN matches m USING (match_id)
+                       WHERE m.winner_id=? AND s.is_winner=1""", (new,)).fetchall(), [(new,)])
+                self.assertEqual(con.execute("SELECT action FROM override_link").fetchall(), [("reassign",)])
+        finally:
+            ws.cleanup()
+
+    def test_reassign_rejects_bad_rows(self):
+        for row, msg in [("player,sackmann_atp,100004,reassign,sackmann_atp,100005,\n", "reassign needs"),
+                         ("player,mcp,100004@2020-01-01,reassign,sackmann_atp,100005,\n", "reassign needs"),
+                         ("player,sackmann_atp,100004@2020-02-01..2020-01-01,reassign,sackmann_atp,100005,\n",
+                          "reassign needs"),
+                         # 100006 played 100005 at Monastir: reassigning would put 100005 on both sides
+                         ("player,sackmann_atp,100006@2020-01-01,reassign,sackmann_atp,100005,\n", "both sides")]:
+            ws = Workspace(row)
+            try:
+                with self.assertRaisesRegex(BuildError, msg):
+                    ws.build()
+            finally:
+                ws.cleanup()
+
     def test_unresolvable_override_target_stops_build(self):
         ws = Workspace("player,mcp,m:Samuel Groth,link,sackmann_atp,does-not-exist,\n")
         try:

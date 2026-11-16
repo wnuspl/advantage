@@ -459,10 +459,12 @@ def predict(res: PointsResult, p: PointsParams) -> array:
 
 
 def run(m, p: PointsParams, snap_before: list[int] | None = None,
-        start_state: "PointsState | None" = None) -> PointsResult:
+        start_state: "PointsState | None" = None, on_snap=None) -> PointsResult:
     """snap_before: sorted match indices; out.snapshots gets a copy of the state just
     before each (an index >= len(m) snapshots the final state). One pass gives
-    standings at many dates. start_state: the state after the matches before m (resume, A5;
+    standings at many dates. on_snap(k, state): called instead of copying, with a live,
+    uncopied view of the state before snap_before[k] (read it, never keep or modify it).
+    start_state: the state after the matches before m (resume, A5;
     not modified): running m from it equals running the whole history."""
     d: PointsData = m.extra["points"]
     n = len(m)
@@ -516,10 +518,16 @@ def run(m, p: PointsParams, snap_before: list[int] | None = None,
         return PointsState(p, dict(S), dict(R), dict(VS), dict(VR), dict(LAST), dict(CNT),
                            dict(DS), dict(DR), dict(DVS), dict(DVR), dict(SLAST), dict(SCNT), dict(base))
 
+    def take():
+        if on_snap is not None:
+            on_snap(snap_i, PointsState(p, S, R, VS, VR, LAST, CNT, DS, DR, DVS, DVR, SLAST, SCNT, base))
+        else:
+            out.snapshots.append(snapshot())
+
     out.snapshots = []
     for i in range(n):
         while snap_i < len(snaps) and snaps[snap_i] <= i:
-            out.snapshots.append(snapshot())
+            take()
             snap_i += 1
         start = m.start[i]
         day = days.get(start)
@@ -739,7 +747,7 @@ def run(m, p: PointsParams, snap_before: list[int] | None = None,
             SCNT[kw], SCNT[kl] = SCNT.get(kw, 0) + 1, SCNT.get(kl, 0) + 1
 
     while snap_i < len(snaps):
-        out.snapshots.append(snapshot())
+        take()
         snap_i += 1
     pw = predict(out, p)
     out.p_winner = pw

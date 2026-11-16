@@ -341,7 +341,7 @@ CREATE TABLE override_link (
   entity_type   TEXT NOT NULL CHECK (entity_type IN ('player','edition','match')),
   source        TEXT NOT NULL REFERENCES source(source),
   source_key    TEXT NOT NULL,
-  action        TEXT NOT NULL CHECK (action IN ('link','forbid')),
+  action        TEXT NOT NULL CHECK (action IN ('link','forbid','reassign')),
   target_source TEXT NOT NULL REFERENCES source(source),
   target_key    TEXT NOT NULL,
   target_id     INTEGER NOT NULL,

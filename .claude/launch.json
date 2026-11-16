@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ratings",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["scripts/ratings_server.py", "--quiet"],
+      "port": 8790
+    }
+  ]
+}

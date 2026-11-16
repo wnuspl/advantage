@@ -94,6 +94,7 @@ def run_build(*, project_root: Path, manifest_path: Path, raw_root: Path, db_pat
 
         # 4. overrides
         ov = overrides.load(con, overrides_path)
+        overrides.apply_reassign(con, ov, log)
         con.commit()
         log(f"overrides: {len(ov.link)} link, {sum(len(v) for v in ov.forbid.values())} forbid")
 

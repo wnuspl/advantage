@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Serve/Return Ratings</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e2dd;
+  --accent: #2f6f4f; --accent-soft: #e4efe8; --up: #2f7d46; --down: #b3412f; --hover: #f1f0eb;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151614; --panel: #1d1f1c; --text: #e8e7e2; --muted: #9a9a92; --line: #30322e;
+    --accent: #7fc19b; --accent-soft: #24352b; --up: #7fc19b; --down: #e8846f; --hover: #252723;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151614; --panel: #1d1f1c; --text: #e8e7e2; --muted: #9a9a92; --line: #30322e;
+  --accent: #7fc19b; --accent-soft: #24352b; --up: #7fc19b; --down: #e8846f; --hover: #252723;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { padding: 16px 16px 8px; max-width: 1400px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 2px; font-weight: 650; }
+.sub { color: var(--muted); font-size: 13px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center;
+  padding: 10px 16px; max-width: 1400px; margin: 0 auto; }
+.group { display: flex; align-items: center; gap: 6px; }
+.group > .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+button, select, input { font: inherit; color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+button { cursor: pointer; }
+button:hover:not(:disabled) { background: var(--hover); }
+button:disabled { opacity: .4; cursor: default; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+input[type=search] { width: 180px; }
+input[type=number] { width: 64px; }
+main { max-width: 1400px; margin: 0 auto; padding: 0 16px 16px; }
+.wrap.loading { opacity: .45; transition: opacity .15s .1s; }
+.wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 5px 9px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { position: sticky; top: 0; background: var(--panel); font-size: 12px; font-weight: 600;
+  color: var(--muted); cursor: pointer; user-select: none; }
+th:hover { color: var(--text); }
+th.sorted { color: var(--accent); }
+th .arrow { display: inline-block; width: 10px; }
+td.l, th.l { text-align: left; }
+th.grp, td.grp { border-left: 1px solid var(--line); }
+tbody tr:hover { background: var(--hover); }
+.up { color: var(--up); } .down { color: var(--down); } .dim { color: var(--muted); }
+.status { padding: 24px; color: var(--muted); text-align: center; }
+footer { max-width: 1400px; margin: 0 auto; padding: 4px 16px 24px; color: var(--muted); font-size: 12px; }
+footer p { margin: 4px 0; }
+.count { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Serve/Return Ratings</h1>
+  <div class="sub" id="sub">Loading…</div>
+</header>
+
+<div class="controls">
+  <div class="group">
+    <button id="prev" title="Previous week (←)">◀</button>
+    <select id="week" aria-label="Week"></select>
+    <button id="next" title="Next week (→)">▶</button>
+    <button id="latest">Latest</button>
+  </div>
+  <div class="group"><span class="lbl">Tour</span>
+    <div class="seg" id="tour"><button data-v="atp">ATP</button><button data-v="wta">WTA</button></div></div>
+  <div class="group"><span class="lbl">Surface</span>
+    <div class="seg" id="surface"><button data-v="all">All</button><button data-v="hard">Hard</button><button data-v="clay">Clay</button><button data-v="grass">Grass</button></div></div>
+  <div class="group"><span class="lbl">Age</span>
+    <div class="seg" id="age"><button data-v="1" title="Rating plus the model's age offset: what it expects now">Adjusted</button><button data-v="0" title="The stored, age-neutral rating">Neutral</button></div></div>
+  <div class="group"><input type="search" id="q" placeholder="Search player" aria-label="Search player"></div>
+  <div class="group"><span class="lbl">Min matches</span><input type="number" id="minn" min="0" step="10" value="10"></div>
+  <span class="count" id="count"></span>
+</div>
+
+<main>
+  <div class="wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+  <div class="status" id="status" hidden></div>
+</main>
+
+<footer id="foot"></footer>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const S = { meta: null, players: [], cache: new Map(), wi: 0, tour: "atp", surface: "all", age: true,
+            q: "", minn: 10, sort: { key: "rank", dir: 1 } };
+let F = {};   // field name -> index in a row
+
+const sig = (x) => 1 / (1 + Math.exp(-x));
+const f3 = (x) => x == null || Number.isNaN(x) ? "" : x.toFixed(3);
+const f1 = (x) => x == null || Number.isNaN(x) ? "" : x.toFixed(1);
+const signed = (x, d = 3) => {
+  if (x == null) return "";
+  const t = Math.abs(x).toFixed(d);
+  return (+t === 0 ? "±" : x > 0 ? "+" : "−") + t;
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// key, label, tooltip, render(row) -> [text, class], value(row) for sorting; grp starts a column group
+const COLS = [
+  { key: "rank", label: "#", tip: "Rank by overall in this view", v: (r) => r.rank },
+  { key: "drank", label: "Δ#", tip: "Rank change since the previous week", v: (r) => r.drank,
+    show: (r) => r.drank == null ? ["new", "dim"] : r.drank === 0 ? ["–", "dim"] : [(r.drank > 0 ? "▲" : "▼") + Math.abs(r.drank), r.drank > 0 ? "up" : "down"] },
+  { key: "name", label: "Player", l: true, v: (r) => r.name, show: (r) => [r.name, ""] },
+  { key: "country", label: "Ctry", l: true, v: (r) => r.country, show: (r) => [r.country || "", "dim"] },
+  { key: "age", label: "Age", v: (r) => r.age, show: (r) => [f1(r.age), ""] },
+  { key: "overall", label: "Overall", tip: "serve + return", grp: true, v: (r) => r.overall, show: (r) => [f3(r.overall), ""] },
+  { key: "doverall", label: "Δ", tip: "Overall change since the previous week", v: (r) => r.doverall,
+    show: (r) => r.doverall == null ? ["", ""] : [signed(r.doverall), r.doverall > 0.0005 ? "up" : r.doverall < -0.0005 ? "down" : "dim"] },
+  { key: "serve", label: "Serve", v: (r) => r.serve, show: (r) => [f3(r.serve), ""] },
+  { key: "ret", label: "Return", v: (r) => r.ret, show: (r) => [f3(r.ret), ""] },
+  { key: "sd_s", label: "SD s", tip: "Serve rating standard deviation, grown by inactivity", v: (r) => r.sd_s, show: (r) => [f3(r.sd_s), "dim"] },
+  { key: "sd_r", label: "SD r", tip: "Return rating standard deviation", v: (r) => r.sd_r, show: (r) => [f3(r.sd_r), "dim"] },
+  { key: "ds", label: "Dev s", tip: "Surface deviation of serve (blank: never played on it, the model uses 0)", grp: true, surf: true, v: (r) => r.ds, show: (r) => [r.ds == null ? "" : signed(r.ds), ""] },
+  { key: "dr", label: "Dev r", tip: "Surface deviation of return", surf: true, v: (r) => r.dr, show: (r) => [r.dr == null ? "" : signed(r.dr), ""] },
+  { key: "dsum", label: "Dev", tip: "Surface deviation, serve + return", surf: true, v: (r) => r.dsum, show: (r) => [r.dsum == null ? "" : signed(r.dsum), ""] },
+  { key: "sn", label: "N surf", tip: "Rated matches on this surface", surf: true, v: (r) => r.sn, show: (r) => [r.sn ?? "", "dim"] },
+  { key: "sp", label: "Serve %", tip: "Serve points won vs the average of this view's top 100", grp: true, v: (r) => r.sp, show: (r) => [f1(r.sp), ""] },
+  { key: "rp", label: "Return %", tip: "Return points won vs the average of this view's top 100", v: (r) => r.rp, show: (r) => [f1(r.rp), ""] },
+  { key: "n", label: "Matches", grp: true, v: (r) => r.n, show: (r) => [r.n, ""] },
+  { key: "n_stat", label: "w/ stats", tip: "Rated matches with serve-point stats", v: (r) => r.n_stat, show: (r) => [r.n_stat, "dim"] },
+  { key: "last", label: "Last event", v: (r) => r.last, show: (r) => [r.last, "dim"] },
+];
+COLS[0].show = (r) => [r.rank, ""];
+
+async function getJSON(url) {
+  const res = await fetch(url, { cache: "no-cache" });
+  if (!res.ok) throw new Error(`${url}: ${res.status} ${await res.text().catch(() => "")}`.slice(0, 300));
+  return res.json();
+}
+
+async function week(i) {
+  if (i < 0 || i >= S.meta.weeks.length) return null;
+  const c = S.meta.weeks[i];
+  if (!S.cache.has(c)) S.cache.set(c, getJSON(`data/weeks/${c}.json.gz`));
+  return S.cache.get(c);
+}
+
+// rows of one week in the current view (tour, surface, age), ranked by overall
+function derive(wk) {
+  if (!wk) return null;
+  const raw = wk.rows[S.tour] || [], blend = S.meta.blend, surf = S.surface;
+  const rows = raw.map((a) => {
+    const p = S.players[a[F.player]];
+    const fs = S.age ? a[F.fs] : 0, fr = S.age ? a[F.fr] : 0;
+    let ds = null, dr = null, sn = null;
+    if (surf !== "all") { ds = a[F[surf + "_ds"]]; dr = a[F[surf + "_dr"]]; sn = a[F[surf + "_n"]]; }
+    const serve = a[F.s] + fs + (ds == null ? 0 : blend * ds);
+    const ret = a[F.r] + fr + (dr == null ? 0 : blend * dr);
+    const dob = p[4];
+    return { pid: a[F.player], key: p[0], name: p[1], country: p[2],
+      age: dob ? (Date.parse(wk.cutoff) - Date.parse(dob)) / (365.25 * 864e5) : null,
+      serve, ret, overall: serve + ret, sd_s: a[F.sd_s], sd_r: a[F.sd_r], ds, dr,
+      dsum: ds == null ? null : ds + dr, sn, n: a[F.n], n_stat: a[F.n_stat], last: a[F.last] };
+  });
+  rows.sort((x, y) => y.overall - x.overall);
+  rows.forEach((r, i) => { r.rank = i + 1; });
+  const ref = rows.slice(0, 100);
+  if (ref.length) {
+    const ms = ref.reduce((t, r) => t + r.serve, 0) / ref.length, mr = ref.reduce((t, r) => t + r.ret, 0) / ref.length;
+    const b = wk.base[S.tour][surf === "all" ? "hard" : surf];
+    for (const r of rows) { r.sp = 100 * sig(b + r.serve - mr); r.rp = 100 * (1 - sig(b + ms - r.ret)); }
+  }
+  return rows;
+}
+
+let token = 0;
+async function render() {
+  const my = ++token;
+  syncControls();
+  writeHash();
+  let cur, prev;
+  $(".wrap").classList.add("loading");
+  try { [cur, prev] = await Promise.all([week(S.wi), week(S.wi - 1)]); }
+  catch (e) { S.cache.delete(S.meta.weeks[S.wi]); S.cache.delete(S.meta.weeks[S.wi - 1]); return showStatus(String(e.message || e)); }
+  finally { if (my === token) $(".wrap").classList.remove("loading"); }
+  if (my !== token) return;
+  const rows = derive(cur), before = derive(prev);
+  const pm = new Map((before || []).map((r) => [r.pid, r]));
+  for (const r of rows) {
+    const p = pm.get(r.pid);
+    r.drank = p ? p.rank - r.rank : null;
+    r.doverall = p ? r.overall - p.overall : null;
+  }
+  const q = S.q.trim().toLowerCase();
+  let shown = rows.filter((r) => r.n >= S.minn && (!q || r.name.toLowerCase().includes(q) || (r.country || "").toLowerCase() === q));
+  const col = COLS.find((c) => c.key === S.sort.key) || COLS[0], dir = S.sort.dir;
+  shown.sort((x, y) => {
+    const a = col.v(x), b = col.v(y);
+    if (a == null && b == null) return x.rank - y.rank;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    const c = typeof a === "string" ? a.localeCompare(b) : a - b;
+    return (c || x.rank - y.rank) * dir;
+  });
+  const cols = COLS.filter((c) => !c.surf || S.surface !== "all");
+  $("#tbl thead").innerHTML = "<tr>" + cols.map((c) =>
+    `<th data-k="${c.key}" class="${c.l ? "l " : ""}${c.grp ? "grp " : ""}${c.key === S.sort.key ? "sorted" : ""}" title="${esc(c.tip || "")}">${esc(c.label)}<span class="arrow">${c.key === S.sort.key ? (dir > 0 ? "▲" : "▼") : ""}</span></th>`).join("") + "</tr>";
+  $("#tbl tbody").innerHTML = shown.map((r) => "<tr>" + cols.map((c) => {
+    const [t, cls] = c.show(r);
+    return `<td class="${c.l ? "l " : ""}${c.grp ? "grp " : ""}${cls}">${esc(t)}</td>`;
+  }).join("") + "</tr>").join("");
+  $("#count").textContent = `${shown.length} of ${rows.length} players`;
+  $("#status").hidden = shown.length > 0;
+  if (!shown.length) $("#status").textContent = "No players match.";
+  const surfTxt = S.surface === "all" ? "all surfaces" : `${S.surface} (rating + ${S.meta.blend} × deviation)`;
+  $("#sub").textContent = `Ratings before the week of ${cur.cutoff} · ${S.tour.toUpperCase()} · ${surfTxt} · ${S.age ? "age-adjusted" : "age-neutral"}`;
+}
+
+function showStatus(msg) { $("#status").hidden = false; $("#status").textContent = msg; }
+
+function syncControls() {
+  $("#week").value = String(S.wi);
+  $("#prev").disabled = S.wi <= 0;
+  $("#next").disabled = S.wi >= S.meta.weeks.length - 1;
+  $("#latest").disabled = S.wi === S.meta.weeks.length - 1;
+  for (const [id, v] of [["#tour", S.tour], ["#surface", S.surface], ["#age", S.age ? "1" : "0"]])
+    for (const b of document.querySelectorAll(id + " button")) b.setAttribute("aria-pressed", String(b.dataset.v === v));
+}
+
+function writeHash() {
+  const h = new URLSearchParams({ week: S.meta.weeks[S.wi], tour: S.tour, surface: S.surface,
+    age: S.age ? "1" : "0", sort: S.sort.key, dir: String(S.sort.dir) });
+  if (S.minn !== 10) h.set("min", String(S.minn));
+  history.replaceState(null, "", "#" + h.toString());
+}
+
+function readHash() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  const wi = S.meta.weeks.indexOf(h.get("week"));
+  S.wi = wi >= 0 ? wi : S.meta.weeks.length - 1;
+  if (["atp", "wta"].includes(h.get("tour"))) S.tour = h.get("tour");
+  if (["all", ...S.meta.surfaces].includes(h.get("surface"))) S.surface = h.get("surface");
+  if (h.has("age")) S.age = h.get("age") !== "0";
+  if (COLS.some((c) => c.key === h.get("sort"))) S.sort = { key: h.get("sort"), dir: h.get("dir") === "-1" ? -1 : 1 };
+  if (h.has("min")) S.minn = Math.max(0, +h.get("min") || 0);
+}
+
+function go(i) { S.wi = Math.max(0, Math.min(S.meta.weeks.length - 1, i)); render(); }
+
+function wire() {
+  $("#prev").onclick = () => go(S.wi - 1);
+  $("#next").onclick = () => go(S.wi + 1);
+  $("#latest").onclick = () => go(S.meta.weeks.length - 1);
+  $("#week").onchange = (e) => go(+e.target.value);
+  const seg = (id, set) => { $(id).onclick = (e) => { const b = e.target.closest("button"); if (b) { set(b.dataset.v); render(); } }; };
+  seg("#tour", (v) => { S.tour = v; });
+  seg("#surface", (v) => {
+    S.surface = v;
+    if (v === "all" && COLS.find((c) => c.key === S.sort.key)?.surf) S.sort = { key: "rank", dir: 1 };
+  });
+  seg("#age", (v) => { S.age = v === "1"; });
+  $("#q").oninput = (e) => { S.q = e.target.value; render(); };
+  $("#minn").value = S.minn;
+  $("#minn").oninput = (e) => { S.minn = Math.max(0, +e.target.value || 0); render(); };
+  $("#tbl thead").onclick = (e) => {
+    const th = e.target.closest("th"); if (!th) return;
+    const k = th.dataset.k;
+    if (S.sort.key === k) S.sort.dir = -S.sort.dir;
+    else S.sort = { key: k, dir: ["rank", "name", "country", "age", "sd_s", "sd_r"].includes(k) ? 1 : -1 };
+    render();
+  };
+  document.addEventListener("keydown", (e) => {
+    if (e.target.matches("input, select") || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === "ArrowLeft") { e.preventDefault(); go(S.wi - 1); }
+    if (e.key === "ArrowRight") { e.preventDefault(); go(S.wi + 1); }
+  });
+}
+
+async function init() {
+  try {
+    [S.meta, S.players] = await Promise.all([getJSON("data/index.json"), getJSON("data/players.json")]);
+  } catch (e) {
+    $("#sub").textContent = "";
+    return showStatus("Could not load the export. Run python scripts/ratings_export.py, then reload. (" + (e.message || e) + ")");
+  }
+  F = Object.fromEntries(S.meta.fields.map((f, i) => [f, i]));
+  $("#week").innerHTML = S.meta.weeks.map((w, i) => [w, i]).reverse()
+    .map(([w, i]) => `<option value="${i}">${w}${i === S.meta.weeks.length - 1 ? " (latest)" : ""}</option>`).join("");
+  readHash();
+  wire();
+  const m = S.meta;
+  $("#foot").innerHTML = `
+    <p>Run ${m.run_id} (${esc(m.model_id)}). Data through editions starting ${esc(m.data_through)}; exported ${esc(m.built_at)}.
+       A week's ratings use only editions that started before it. Players with ${m.min_matches}+ rated matches and a match in the last ${m.active_days} days, top ${m.top} per tour.</p>
+    <p>Ratings are logits of a serve point: +0.1 is roughly +2 pp of serve points won. ATP and WTA are on separate scales.
+       Results after 2026-05-25 come from AcesAPI only: tour level, no serve stats, no Challengers, so players who mostly play Challengers look frozen after that date.</p>
+    <p>Match data from Jeff Sackmann's tennis datasets, CC BY-NC-SA 4.0. Non-commercial use only.</p>`;
+  window.addEventListener("hashchange", () => { readHash(); render(); });
+  render();
+}
+init();
+</script>
+</body>
+</html>
