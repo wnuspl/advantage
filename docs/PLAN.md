@@ -17,6 +17,7 @@ The project restarts blank on top of the data layer. Everything else from v1 sit
 | Kalshi client | `kalshi.py` (endpoints, order books, live scores, fees, Kelly walk) | Kept; no model dependency |
 | Engine seam | `engine/predictor.py` (`Predictor`, `MatchQuery`, `Prediction`, `FixedPredictor`) | New |
 | Predictor (A1) | `calibrate.py`, `engine/predict.py` (`PointsPredictor`), `engine/players.py`, `engine/editions.py`, `scripts/predict.py` | Added 2026-11-15 |
+| Training harness (A2) | `train/` (data, scoring, runs, context_fit, compare), `scripts/train.py` | Added 2026-11-15 |
 
 What it cannot do yet: calibrate, score a run, record a run, resolve a name, price a market, run a CLI. The milestones add those back.
 
@@ -41,6 +42,8 @@ Adds back, as `src/tennis/train/` + `scripts/train.py`:
 - **Context fit** (from `context_fit.py`): iterated residual WLS for the `cs_*`/`cr_*` coefficients, inside the training loop.
 
 Done when: `train.py` reproduces run 790's val numbers (tour 0.5901 calibrated) from scratch.
+
+**Done 2026-11-15.** Run 790 rebuilt from zero context, bit for bit, in two recorded v1 steps: `train.py context --base 694 --iters 11` (q 1.5e-5, unc 5) reproduces run 711's params exactly (max |diff| 0.0), and `train.py context --base 711 --set q=7e-6 --set unc=3 --iters 3` reproduces run 790's params exactly (max |diff| 0.0). Val tour: 0.5896 raw, 0.5899 calibrated per (tour, best-of) (the harness default, `tour_cal`), 0.5901 per tour; run 694 0.5937 calibrated. These match v1's records. Three iterations from zero alone reach only 0.5905: the age offsets converge slowly. Commands: `score`, `sweep`, `context`, `show`, `compare`, and `finalize` (test, refuses a second scoring without `--force`). Calibrated scopes are stored as `tour_cal`, `tour_atp_cal`, `tour_wta_cal` next to v1's raw scopes. `--model-id points_v2` names the retrain's runs.
 
 ### A3. Retrain: `points_v2` (pre-match, with context)
 Nothing to add back; this is the work itself:
