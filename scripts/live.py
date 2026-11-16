@@ -3,7 +3,7 @@
 
     python scripts/live.py                                  # pull now, FixedPredictor(0.5)
     python scripts/live.py --pull data/raw/kalshi/20261115T223132Z   # reprice a saved pull, no network
-    python scripts/live.py --predictor points --bankroll 1000 --kelly 0.25 --model-weight 0.5
+    python scripts/live.py --predictor points --bankroll 10 --kelly 0.25 --model-weight 0.5
     python scripts/live.py --predictor fixed --fixed-p 0.6 --surface hard --json out.json
 
 Each poll is saved raw under data/raw/kalshi/<UTC>/ (events, milestones, live scores,

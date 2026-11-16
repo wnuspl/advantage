@@ -112,10 +112,13 @@ def decide_all(rows: list[MarketSnapshot], books: dict, pol: Policy) -> list[Dec
     return out
 
 
+CLI_BANKROLL = 10.0                   # scripts/live.py, scripts/watch.py default (user, 2026-11-15)
+
+
 def add_policy_args(ap) -> None:
     """Policy flags for an argparse parser (scripts/live.py, scripts/watch.py)."""
     g = ap.add_argument_group("policy (engine/decide.py)")
-    g.add_argument("--bankroll", type=float, default=Policy.bankroll, help="dollars")
+    g.add_argument("--bankroll", type=float, default=CLI_BANKROLL, help="dollars (default $%(default)g)")
     g.add_argument("--kelly", type=float, default=Policy.kelly, help="Kelly fraction (1 = full Kelly)")
     g.add_argument("--model-weight", type=float, default=Policy.model_weight,
                    help="logit blend weight on the model (1 = model only, 0 = market only)")
