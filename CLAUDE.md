@@ -12,12 +12,12 @@ Start point: **run 790** (`points_v1` + context offsets), tour-level test 2022-2
 - **Ratings:** per player serve rating `s` and return rating `r`, per (player, surface) deviations, Kalman variances; updated on serve points won (stats), else set scores, else the result. Walkovers/unfinished never update; retirements count fully (`retired_weight` 1).
 - **Point probabilities -> match probability by Markov chain**, best-of and deciding-set rule from the results data, never assumed. `markov.match_from` rolls up from any in-play score.
 - **Context is a per-match offset on each serve-point logit** (rust, load, age), used in prediction and in the update, never written into the state.
-- **In-match form:** today's serve points update each serve logit with a shared per-match form term (`IN_PLAY_FORM_VAR` 0.02). Serve vs return form is not yet separated (plan item).
+- **In-match form:** each serve stream (A serving = A's serve vs B's return; B serving = A's return) gets its own per-match form term (`IN_PLAY_FORM_VAR` 0.02), updated only on that stream's points. Linking the streams (`form_corr`, a player's day form lifting serve and return) was tested in A4 and doesn't help (ATP worse, WTA flat); see `docs/PLAN.md` A4.
 - **Calibrate and report raw and calibrated.** Calibration fitted on past data only.
 - **No double-counting:** any layer trained on another's residuals uses a cutoff.
 
 ## Measured negatives (v1; don't redo)
-PCA style vectors and every matchup layer on them (bilinear, siamese, LightGBM; also on a points_v1 base); personal style edges (don't repeat, r ≈ 0.02); phase-profile correction (-0.0001); per-tour context coefficients; `rust_weight` < 1; home advantage and in-event workload. Details in `archive/v1/CLAUDE.md` "Findings" and `docs/DESIGN.md`.
+PCA style vectors and every matchup layer on them (bilinear, siamese, LightGBM; also on a points_v1 base); personal style edges (don't repeat, r ≈ 0.02); phase-profile correction (-0.0001); per-tour context coefficients; `rust_weight` < 1; home advantage and in-event workload; in play (A4/R3): cross-stream `form_corr`, stage calibration, ace bonus, separate serve/return form variances (unidentified: only `f_s + f_r` matters) and per-player form volatility, per-tour/surface/best-of form variance (val within ±0.0001 of the single 0.02). Details in `archive/v1/CLAUDE.md` "Findings" and `docs/DESIGN.md`.
 
 ## Evaluation rules
 - Walk-forward only. Never shuffle. Train on the past, predict the next block, roll forward. Val 2019-21, test 2022-26; test is scored once per finished model.

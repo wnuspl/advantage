@@ -81,6 +81,27 @@ Done when: in-play log loss beats form_var 0.02 on val, and test is scored once.
 
 Test not scored: nothing beat the live setting on val. In play stays form 0.02, independent streams, run's `unc`, uncalibrated.
 
+**R3, serve form vs return form (2026-11-16): measured negative, live unchanged.** `train/inplay_r3.py` + `scripts/inplay_r3.py` (`moments`, `grid`); variants paired against the live setting in the A4 harness (the base reproduces A4's live variant to 4e-13).
+- **The split itself is not identified.** With `x_A + e_sA - e_rB` and independent terms, each direction has variance `f_s + f_r` and the two directions are independent, so predictions depend only on the sum. A within-player serve/return link shows up only as the cross-stream correlation, which A4 already tested (`form_corr`, no gain). Across matches only *per-player* differences are identified: `V(i serving, j returning) = F + D_s(i) + D_r(j)`.
+- **Per-match form variance** (moment `u = z^2 - 1/(npq) - v` from every match with serve stats; tour level): ATP 0.045, WTA 0.048 (fit); surfaces within ±0.008 (grass lowest); **ATP best-of-5 0.032 vs best-of-3 0.048**, the same in fit and val.
+- **Per-player volatility is real but small.** Split-half reliability of a player's mean excess u (1,600 players with 40+ matches before 2019): serve r 0.13 ± 0.03, return 0.12 ± 0.03. Walk-forward shrunk deviations `D = S / (n + kappa)` predict the next match's u with slope near 1 at kappa 400-800 (fit: serve 0.97 ± 0.12, return 0.66 ± 0.13 at 400). That is a multiplier of about ±11% on the form variance, with R^2 0.0013 of the noisy u.
+- **Fit 2011-18** (7,603 matches, 200,178 checkpoints; 36 variants): per-player kappa_s / kappa_r in {100, 400, 1600}, serve side, return side or both: best -0.00007 ± 0.00018. Per surface ±0.0002. Per tour: ATP 0.015, -0.00047 ± 0.00020. Best: ATP best-of-5 0.01, -0.0008 ± 0.0004; 0.015, -0.00054 ± 0.00019. This explains A4's ATP-prefers-0.015.
+- **Val 2019-21** (4,058 matches, 104,775 checkpoints), against form 0.02:
+
+  | Variant | d log loss |
+  |---|---|
+  | ATP best-of-5 0.015 | -0.00008 ± 0.00023 |
+  | ATP best-of-5 0.0133 (moment ratio) | -0.00005 ± 0.00031 |
+  | ATP 0.015 | +0.00002 ± 0.00025 |
+  | per-player kappa_s = kappa_r = 400 | +0.00003 ± 0.00021 |
+  | per-player kappa_s 100 | +0.00010 ± 0.00025 |
+  | ATP best-of-5 0.01 | +0.00011 ± 0.00048 |
+  | ATP best-of-5 0.0133 + per-player 400 | +0.00008 ± 0.00040 |
+
+  Set ends: all within +0.0002. On hard courts ATP best-of-5 helps again (-0.0005 ± 0.0003), but it hurts on clay and grass.
+
+Verdict: no variant beats the single form term on val. Test not scored. `predict.py` is unchanged. The in-play edge has to come from the pre-match anchor or from information beyond serve points won (A4's ace signal is the open lead), not from re-weighting the form variance.
+
 ### A5. State persistence + incremental replay
 New, nothing from v1: save state and context bookkeeping at cutoffs (monthly snapshots), and resume `run()` from them. Done when incremental replay equals full replay and a daily AcesAPI pull updates the predictor in seconds.
 

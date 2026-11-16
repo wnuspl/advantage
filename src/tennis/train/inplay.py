@@ -257,7 +257,9 @@ def match_probs(md: MatchData, var: InPlay, params) -> np.ndarray:
 
 def _chunk(args):
     mds, variants, params = args
-    return [[match_probs(md, v, params) for md in mds] for v in variants]
+    # a variant may bring its own update (e.g. inplay_r3.SplitForm); else InPlay
+    return [[v.match_probs(md, params) if hasattr(v, "match_probs") else match_probs(md, v, params)
+             for md in mds] for v in variants]
 
 
 def evaluate(mds: list, variants: list, params, workers: int = 14) -> dict:
