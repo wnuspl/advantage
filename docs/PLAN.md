@@ -71,6 +71,16 @@ Then: separate serve and return form (`f_s`, `f_r`), an in-play `unc`, and calib
 
 Done when: in-play log loss beats form_var 0.02 on val, and test is scored once.
 
+**Harness done, model unchanged (2026-11-15).** `train/inplay.py` + `scripts/inplay_eval.py`: 17,434 pbp matches 2011+ (slam pbp + MCP; 241 dropped because the points don't replay to the result) give 442,735 game-end checkpoints; run 790's walk-forward pre-match logits; variants paired against the live setting (form 0.02, independent streams), SE clustered by match. MCP parsing not needed (the loaded `point` rows suffice). Findings:
+- The form update itself is confirmed on val: -0.0060 ± 0.0018 vs score only.
+- **Serve vs return form.** Within a match they are only identified through the correlation of the two serve streams. It is real and negative (player day form, not conditions): whole-match cross covariance -0.011 ± 0.001 in every period (same-stream persistence +0.024); the predictive part (A's first half vs B's second half) is -0.005 ± 0.001, correlation about -0.25. Built as `points_rating.in_match_form2` (2-d update, `form_corr`). It does not help: on fit 2011-18 rho in [-0.5, 0.25] moves log loss by ±0.0004 at best and -0.5 hurts (+0.0017); on val rho -0.25 hurts (+0.0006 ± 0.0003). By the time it matters, B's own service games say more.
+- **In-play `unc`**: the run's 3 beats 4.5 and 6 on fit.
+- **Calibration by stage** (alpha per best-of and sets played, fitted on 2011-18): -0.0010 on fit (in-sample; best-of-5 early stages underconfident, alpha 1.13), +0.0003 on val. Not kept.
+- **Point details** (aces, double faults, first serve in; the point-by-point question). First-half aces above the player's own point-in-time rate (from `match_player_stats`) predict second-half serve results beyond points won (z +9, both tours); double faults and first-serve % add little. As an ace bonus in the form update (k + gamma (aces - expected)): fit best gamma 0.5 with form 0.015, -0.0007 ± 0.0004; val +0.0003 ± 0.0006 (0.25: -0.0001 ± 0.0004). Not kept. The ace signal may be partly pre-match (big servers vs their rating): a candidate pre-match feature, not an in-play one.
+- Form 0.015 vs 0.02: -0.0002 ± 0.0003 on val, noise; ATP and WTA swap preferences between fit and val.
+
+Test not scored: nothing beat the live setting on val. In play stays form 0.02, independent streams, run's `unc`, uncalibrated.
+
 ### A5. State persistence + incremental replay
 New, nothing from v1: save state and context bookkeeping at cutoffs (monthly snapshots), and resume `run()` from them. Done when incremental replay equals full replay and a daily AcesAPI pull updates the predictor in seconds.
 

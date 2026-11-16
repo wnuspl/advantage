@@ -800,6 +800,47 @@ def in_match_form(x: float, v: float, won: int, played: int,
     return m, v * p1 / p0
 
 
+def in_match_form2(xa: float, xb: float, va: float, vb: float, won_a: int, played_a: int,
+                   won_b: int, played_b: int, form_var: float = IN_PLAY_FORM_VAR,
+                   form_corr: float = 0.0) -> tuple[float, float, float, float]:
+    """Joint form update of both serve-point logits (milestone A4).
+
+    This match's logits are x_A + e_A, x_B + e_B with (e_A, e_B) ~ N(0, S),
+        S = [[v_A + f, rho f], [rho f, v_B + f]],   f = form_var, rho = form_corr,
+    and each player's serve points so far a binomial observation of their own logit.
+    rho < 0: a player's day form lifts their serve AND their return (so A serving well
+    hints that B will serve worse); rho > 0: conditions shared by both servers (fast
+    court, wind). Posterior mode by 2-d Newton; each variance is scaled by its posterior /
+    prior ratio, as in in_match_form(). rho = 0 gives in_match_form() on each logit."""
+    if played_a <= 0 and played_b <= 0:
+        return xa, xb, va, vb
+    s11, s22, s12 = va + form_var, vb + form_var, form_corr * form_var
+    det = s11 * s22 - s12 * s12
+    i11, i22, i12 = s22 / det, s11 / det, -s12 / det              # S^-1
+    ea = eb = 0.0
+    for _ in range(50):
+        pa = 1 / (1 + math.exp(-(xa + ea)))
+        pb = 1 / (1 + math.exp(-(xb + eb)))
+        ga = (won_a - played_a * pa) - (i11 * ea + i12 * eb)
+        gb = (won_b - played_b * pb) - (i12 * ea + i22 * eb)
+        h11 = played_a * pa * (1 - pa) + i11
+        h22 = played_b * pb * (1 - pb) + i22
+        h12 = i12
+        hd = h11 * h22 - h12 * h12
+        da = (h22 * ga - h12 * gb) / hd
+        db = (h11 * gb - h12 * ga) / hd
+        ea += da
+        eb += db
+        if abs(da) < 1e-12 and abs(db) < 1e-12:
+            break
+    pa = 1 / (1 + math.exp(-(xa + ea)))
+    pb = 1 / (1 + math.exp(-(xb + eb)))
+    h11 = played_a * pa * (1 - pa) + i11
+    h22 = played_b * pb * (1 - pb) + i22
+    hd = h11 * h22 - i12 * i12
+    return xa + ea, xb + eb, va * (h22 / hd) / s11, vb * (h11 / hd) / s22
+
+
 def in_play_probability(state: PointsState, xa: float, xb: float, va: float, vb: float,
                         best_of: int, final: str, score: dict, a_serving: bool,
                         deciding_tb_points: int = 7, h: float = 1e-3) -> float:
