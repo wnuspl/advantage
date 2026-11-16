@@ -71,6 +71,7 @@ from datetime import date
 import numpy as np
 
 from . import context, markov
+from .matches import window_sql
 
 NAN = float("nan")
 _PI2 = math.pi ** 2
@@ -268,11 +269,12 @@ def deciding_set_evidence(score: str | None, best_of: int | None) -> str | None:
     return None
 
 
-def infer_rules(rows) -> tuple[dict, dict]:
+def infer_rules(rows, last: dict | None = None) -> tuple[dict, dict]:
     """rows: (edition_id, tournament_id, start_date, score, best_of) for completed matches.
     Rule per edition: strongest evidence in its own scores (mtb > tb12 > adv > tb; the
     rule is announced before the event, so this is not outcome leakage). An edition
-    without evidence takes its tournament's latest earlier inferred rule, else 'tb'."""
+    without evidence takes its tournament's latest earlier inferred rule, else 'tb'.
+    last: tournament_id -> rule of its latest earlier edition (resume); updated in place."""
     rank = {"tb": 0, "adv": 1, "tb12": 2, "mtb": 3}
     ev: dict[int, str] = {}
     meta: dict[int, tuple] = {}
@@ -281,7 +283,8 @@ def infer_rules(rows) -> tuple[dict, dict]:
         e = deciding_set_evidence(score, bo)
         if e and (eid not in ev or rank[e] > rank[ev[eid]]):
             ev[eid] = e
-    out, last, counts = {}, {}, {}
+    out, counts = {}, {}
+    last = {} if last is None else last
     for eid in sorted(meta, key=lambda e: meta[e]):
         start, tid = meta[eid]
         if eid in ev:
@@ -296,26 +299,37 @@ def infer_rules(rows) -> tuple[dict, dict]:
     return out, counts
 
 
-def attach(con: sqlite3.Connection, m, alias: str = "data") -> PointsData:
+def attach(con: sqlite3.Connection, m, alias: str = "data", since: str | None = None,
+           before: str | None = None, rule_last: dict | None = None,
+           ctx_init: dict | None = None) -> PointsData:
     """Load best-of, deciding-set rule and serve stats aligned with `m` (cached on m.extra),
-    and the parsed scores for the score tier (m.extra['scores'])."""
+    and the parsed scores for the score tier (m.extra['scores']).
+
+    Resume (m = matches.load_matches(since=, before=)): pass the same window, the
+    tournament rule history before it (rule_last; updated in place, also left on
+    m.extra['rule_last']) and the context player states before it (ctx_init)."""
     if "points" in m.extra:
         if "scores" not in m.extra:
             attach_scores(con, m, alias)
-        context.attach(con, m, alias)
+        context.attach(con, m, alias, ctx_init, since, before)
         return m.extra["points"]
+    cond, args = window_sql(since, before)
+    rule_last = {} if rule_last is None else rule_last
     rule, counts = infer_rules(con.execute(
         f"""SELECT m.edition_id, e.tournament_id, e.start_date, m.score, m.best_of
             FROM {alias}.matches m JOIN {alias}.tournament_edition e USING (edition_id)
-            WHERE m.status = 'completed'"""))
+            WHERE m.status = 'completed' AND {cond}""", args), rule_last)
+    m.extra["rule_last"] = rule_last
     info = {mid: (eid, bo) for mid, eid, bo in con.execute(
-        f"SELECT match_id, edition_id, best_of FROM {alias}.matches")}
+        f"""SELECT m.match_id, m.edition_id, m.best_of FROM {alias}.matches m
+            JOIN {alias}.tournament_edition e USING (edition_id) WHERE {cond}""", args)}
     stats: dict[int, dict[int, tuple[int, int]]] = {}
     for mid, w, sp, fw, sw in con.execute(
-            f"""SELECT match_id, is_winner, serve_points, first_won, second_won
-                FROM {alias}.match_player_stats
-                WHERE serve_points > 0 AND first_won IS NOT NULL AND second_won IS NOT NULL
-                  AND first_won + second_won <= serve_points"""):
+            f"""SELECT s.match_id, s.is_winner, s.serve_points, s.first_won, s.second_won
+                FROM {alias}.match_player_stats s JOIN {alias}.matches m USING (match_id)
+                JOIN {alias}.tournament_edition e USING (edition_id)
+                WHERE s.serve_points > 0 AND s.first_won IS NOT NULL AND s.second_won IS NOT NULL
+                  AND s.first_won + s.second_won <= s.serve_points AND {cond}""", args):
         stats.setdefault(mid, {})[w] = (sp, fw + sw)
     n = len(m)
     d = PointsData(bytearray(n), array("l", [-1]) * n, array("l", [-1]) * n,
@@ -329,17 +343,20 @@ def attach(con: sqlite3.Connection, m, alias: str = "data") -> PointsData:
             d.w_sp[i], d.w_sw[i] = st[1]
             d.l_sp[i], d.l_sw[i] = st[0]
     m.extra["points"] = d
-    attach_scores(con, m, alias)
-    context.attach(con, m, alias)
+    attach_scores(con, m, alias, since, before)
+    context.attach(con, m, alias, ctx_init, since, before)
     return d
 
 
-def attach_scores(con: sqlite3.Connection, m, alias: str = "data") -> list:
+def attach_scores(con: sqlite3.Connection, m, alias: str = "data", since: str | None = None,
+                  before: str | None = None) -> list:
     """Parsed scores aligned with `m` (parse_score per match; None = not usable), using the
     formats already in m.extra['points']. Kept apart from PointsData so blackout() leaves
     scores in place: hiding stats leaves the score tier to do the work."""
     d = m.extra["points"]
-    raw = dict(con.execute(f"SELECT match_id, score FROM {alias}.matches"))
+    cond, args = window_sql(since, before)
+    raw = dict(con.execute(f"""SELECT m.match_id, m.score FROM {alias}.matches m
+                               JOIN {alias}.tournament_edition e USING (edition_id) WHERE {cond}""", args))
     out = [parse_score(raw.get(mid), *FORMATS[d.fmt[i]], m.status[i])
            for i, mid in enumerate(m.match_id)]
     m.extra["scores"] = out
@@ -441,10 +458,12 @@ def predict(res: PointsResult, p: PointsParams) -> array:
     return array("d", out.tolist())
 
 
-def run(m, p: PointsParams, snap_before: list[int] | None = None) -> PointsResult:
+def run(m, p: PointsParams, snap_before: list[int] | None = None,
+        start_state: "PointsState | None" = None) -> PointsResult:
     """snap_before: sorted match indices; out.snapshots gets a copy of the state just
     before each (an index >= len(m) snapshots the final state). One pass gives
-    standings at many dates (scripts/eoy_serve_return.py)."""
+    standings at many dates. start_state: the state after the matches before m (resume, A5;
+    not modified): running m from it equals running the whole history."""
     d: PointsData = m.extra["points"]
     n = len(m)
     floats = lambda: array("d", bytes(8 * n))                   # noqa: E731
@@ -455,9 +474,15 @@ def run(m, p: PointsParams, snap_before: list[int] | None = None) -> PointsResul
     grids = {k: markov.grid(*FORMATS[k]) for k in set(d.fmt[:n])}   # only formats present
     v0, q, ov, sv0, qs = p.v_init, p.q, p.obs_var, p.surf_var, p.q_surf
     init, nsw, rsw, rtw, blr = -p.init_offset, p.nostat_weight, p.result_weight, p.retired_weight, p.base_lr
-    S, R, VS, VR, LAST, CNT = {}, {}, {}, {}, {}, {}
-    DS, DR, DVS, DVR, SLAST, SCNT = {}, {}, {}, {}, {}, {}
-    base: dict = {}
+    if start_state is None:
+        S, R, VS, VR, LAST, CNT = {}, {}, {}, {}, {}, {}
+        DS, DR, DVS, DVR, SLAST, SCNT = {}, {}, {}, {}, {}, {}
+        base: dict = {}
+    else:
+        S, R, VS, VR, LAST, CNT = (dict(x) for x in (start_state.serve, start_state.ret, start_state.vs, start_state.vr, start_state.last, start_state.count))
+        DS, DR, DVS, DVR, SLAST, SCNT = (dict(x) for x in (start_state.sserve, start_state.sret, start_state.svs, start_state.svr,
+                                                             start_state.slast, start_state.scount))
+        base = dict(start_state.base)
     days: dict[str, int] = {}
     w_sp, w_sw, l_sp, l_sw = d.w_sp, d.w_sw, d.l_sp, d.l_sw
     sig = lambda x: 1.0 / (1.0 + math.exp(-x))                   # noqa: E731

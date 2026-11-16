@@ -46,6 +46,7 @@ from pathlib import Path
 from .. import calibrate, context, markov, matches, models_db, points_rating
 from ..kalshi import LiveState
 from . import players as players_mod
+from . import state as state_mod
 from .predictor import MatchQuery, Prediction
 
 ROOT = models_db.ROOT
@@ -53,7 +54,7 @@ CACHE_DIR = ROOT / "models" / "engine"
 STALE_DAYS = 120
 CACHE_VERSION = b"engine-points-cache-v1"
 CODE = ("points_rating.py", "context.py", "markov.py", "matches.py", "calibrate.py",
-        "engine/predict.py", "engine/players.py")
+        "engine/predict.py", "engine/players.py", "engine/state.py")
 
 
 @dataclass
@@ -91,16 +92,22 @@ def build_model(m, params: points_rating.PointsParams, edition_of, dob: dict, ed
     erule: dict = {}
     for i in range(n):
         erule[edition_of[i]] = points_rating.FORMATS[fmt[i]][1]
-    trule: dict = {}
-    for eid, (start, tid, _s, _b) in sorted(editions.items(), key=lambda kv: (kv[1][0], kv[0])):
-        if eid in erule:
-            trule[tid] = erule[eid]
+    trule = tournament_rules(editions, erule)
     ctx = context.player_states(m, edition_of) if params.has_context() else {}
     return ModelState(run_id=run_id, model_id=model_id, params=params, state=res.state,
                       ctx_states=ctx, dob=dob, alphas=alphas, alpha_block=block, editions=editions,
                       edition_rule=erule, tournament_rule=trule,
                       last_start=m.start[n - 1] if n else None, n_matches=n, as_of=as_of,
                       players=players_index)
+
+
+def tournament_rules(editions: dict, erule: dict) -> dict:
+    """tournament_id -> deciding-set rule of its latest edition with matches."""
+    trule: dict = {}
+    for eid, (start, tid, _s, _b) in sorted(editions.items(), key=lambda kv: (kv[1][0], kv[0])):
+        if eid in erule:
+            trule[tid] = erule[eid]
+    return trule
 
 
 def _sig(x: float) -> float:
@@ -128,7 +135,7 @@ class PointsPredictor:
     def load(cls, run_id: int = 790, *, as_of: str | None = None, today: str | None = None,
              models_path: Path = models_db.MODELS_DB, data_path: Path = models_db.DATA_DB,
              cache_dir: Path | None = CACHE_DIR, rebuild: bool = False, log=print,
-             **kw) -> "PointsPredictor":
+             state_dir: Path | None = None, use_state: bool = True, **kw) -> "PointsPredictor":
         """Replay run `run_id` from models.db over tennis.db (editions starting before `as_of`
         only, if given), or reuse the cached replay. `today` (default as_of, else the system
         date) picks the calibration quarter and the name resolver's 'recent' window."""
@@ -144,7 +151,8 @@ class PointsPredictor:
             if model is None:
                 t = time.perf_counter()
                 log(f"model: replaying run {run_id} over tennis.db (cached afterwards) ...")
-                model = model_from_db(con, run_id, model_id, params, as_of=as_of, today=today)
+                model = model_from_db(con, run_id, model_id, params, as_of=as_of, today=today,
+                                      use_state=use_state, state_dir=state_dir, log=log)
                 log(f"model: replay done in {time.perf_counter() - t:.0f}s "
                     f"({model.n_matches:,} matches, latest edition {model.last_start})")
                 if path is not None:
@@ -279,7 +287,15 @@ def run_params(con, run_id: int) -> tuple[str, points_rating.PointsParams]:
 
 
 def model_from_db(con, run_id: int | None, model_id: str, params, *, as_of: str | None,
-                  today: str, alias: str = "data") -> ModelState:
+                  today: str, alias: str = "data", use_state: bool = True, state_dir: Path | None = None,
+                  log=print) -> ModelState:
+    """From the latest valid saved state (engine/state.py) plus the editions after it, or
+    from a full replay when there is none."""
+    if use_state and run_id is not None:
+        snap = state_mod.latest_valid(con, run_id, params, before=as_of, state_dir=state_dir, alias=alias, log=log)
+        if snap is not None:
+            log(f"model: resuming from saved state {snap.cutoff} ({snap.n_matches:,} matches)")
+            return model_from_snapshot(con, snap, run_id, model_id, as_of=as_of, today=today, alias=alias)
     m = matches.load_matches(con, alias)
     points_rating.attach(con, m, alias)              # also context.attach
     if as_of:
@@ -292,6 +308,27 @@ def model_from_db(con, run_id: int | None, model_id: str, params, *, as_of: str 
     return build_model(m, params, [edmap[i] for i in m.match_id], dob, eds, today=today,
                        run_id=run_id, model_id=model_id, as_of=as_of,
                        players_index=players_mod.build_index(con, today, alias))
+
+
+def model_from_snapshot(con, snap, run_id: int, model_id: str, *, as_of: str | None, today: str,
+                        alias: str = "data") -> ModelState:
+    """The same ModelState build_model() gives for the full history, from a snapshot plus
+    the replay of the editions after its cutoff (tests/test_state.py)."""
+    w, erule_before, _keys = state_mod.resume(con, snap, before=as_of, alias=alias)
+    params = w.res.state.params
+    calib = state_mod.merge_calib(snap.calib, state_mod.calib_rows(w))
+    block = calibrate.block_start(today)
+    erule = {**erule_before, **w.erule}
+    dob = {k: v for k, v in con.execute(f"SELECT player_id, dob FROM {alias}.player") if v}
+    sql = f"SELECT edition_id, start_date, tournament_id, surface, best_of FROM {alias}.tournament_edition"
+    eds = {e: (s, t, sf, bo) for e, s, t, sf, bo in con.execute(sql) if not as_of or s < as_of}
+    return ModelState(run_id=run_id, model_id=model_id, params=params, state=w.res.state,
+                      ctx_states=w.ctx if params.has_context() else {}, dob=dob,
+                      alphas=state_mod.calib_alphas(calib, block), alpha_block=block, editions=eds,
+                      edition_rule=erule, tournament_rule=tournament_rules(eds, erule),
+                      last_start=w.m.start[-1] if len(w.m) else snap.last_start,
+                      n_matches=snap.n_matches + len(w.m), as_of=as_of,
+                      players=players_mod.build_index(con, today, alias))
 
 
 def cache_key(con, run_id: int, params, as_of: str | None, today: str, alias: str = "data") -> str:

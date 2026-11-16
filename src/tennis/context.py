@@ -26,6 +26,7 @@ Features (0 when unknown, which is neutral):
 """
 from __future__ import annotations
 
+import copy
 import sqlite3
 from collections import defaultdict
 from datetime import date
@@ -51,12 +52,31 @@ class _P:
         self.since_return = 99    # matches played since a > 12-week gap (99 = none)
 
 
-def features(m, edition, dob: dict) -> tuple[np.ndarray, np.ndarray]:
+class _Resume(dict):
+    """Player states for a resumed pass: a player's saved state is copied the first time
+    the pass touches them, so `init` is never modified and untouched players cost nothing."""
+
+    def __init__(self, init: dict | None):
+        super().__init__()
+        self.init = init or {}
+
+    def __missing__(self, pid):
+        v = copy.deepcopy(self.init[pid]) if pid in self.init else _P()
+        self[pid] = v
+        return v
+
+    def merged(self) -> dict:
+        """init with the touched players replaced (untouched states are shared, unmodified)."""
+        return {**self.init, **self}
+
+
+def features(m, edition, dob: dict, init: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
     """(C_winner, C_loser), each len(m) x K, for matches in m's walk-forward order.
-    edition[i]: edition id of match i; dob: player_id -> ISO birth date (or missing)."""
+    edition[i]: edition id of match i; dob: player_id -> ISO birth date (or missing).
+    init: player_states() after the matches before m (resume; not modified)."""
     n = len(m)
     C = (np.zeros((n, K)), np.zeros((n, K)))
-    st = defaultdict(_P)
+    st = _Resume(init)
     ords: dict[str, int] = {}
     birth = {}
     for pid, d in dob.items():
@@ -116,10 +136,14 @@ def features_at(m, edition, dob: dict, queries: dict[int, tuple[int | None, int]
     return features_from_states(player_states(m, edition, set(queries)), dob, queries)
 
 
-def player_states(m, edition, pids: set | None = None) -> dict:
+def player_states(m, edition, pids: set | None = None, init: dict | None = None) -> dict:
     """features()' per-player bookkeeping after every match in m (pids None = all
-    players). Picklable: cache it and call features_from_states() for live matches."""
-    st = defaultdict(_P) if pids is None else {pid: _P() for pid in pids}
+    players), starting from `init` (states after earlier matches; not modified).
+    Picklable: cache it and call features_from_states() for live matches."""
+    if pids is None:
+        st = _Resume(init)
+    else:
+        st = {pid: copy.deepcopy(init[pid]) if init and pid in init else _P() for pid in pids}
     days: dict[str, int] = {}
     for i in range(len(m)):
         pair = (m.winner[i], m.loser[i])
@@ -147,7 +171,7 @@ def player_states(m, edition, pids: set | None = None) -> dict:
                     st[pid].n += 1
                     if st[pid].since_return < 99:
                         st[pid].since_return += 1
-    return dict(st)
+    return st.merged() if isinstance(st, _Resume) else dict(st)
 
 
 def features_from_states(states: dict, dob: dict, queries: dict[int, tuple[int | None, int]]) -> dict[int, np.ndarray]:
@@ -184,13 +208,18 @@ def features_from_states(states: dict, dob: dict, queries: dict[int, tuple[int |
     return out
 
 
-def attach(con: sqlite3.Connection, m, alias: str = "data") -> tuple[np.ndarray, np.ndarray]:
-    """Context features aligned with m, cached on m.extra['context']."""
+def attach(con: sqlite3.Connection, m, alias: str = "data", init: dict | None = None,
+           since: str | None = None, before: str | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Context features aligned with m, cached on m.extra['context'] (init: player states
+    before m, when m is a later window of the history)."""
     if "context" in m.extra:
         return m.extra["context"]
-    ed = dict(con.execute(f"SELECT match_id, edition_id FROM {alias}.matches"))
+    from .matches import window_sql
+    cond, args = window_sql(since, before)
+    ed = dict(con.execute(f"""SELECT m.match_id, m.edition_id FROM {alias}.matches m
+                              JOIN {alias}.tournament_edition e USING (edition_id) WHERE {cond}""", args))
     dob = dict(con.execute(f"SELECT player_id, dob FROM {alias}.player"))
-    C = features(m, [ed[mid] for mid in m.match_id], dob)
+    C = features(m, [ed[mid] for mid in m.match_id], dob, init)
     m.extra["context"] = C
     return C
 

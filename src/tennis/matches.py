@@ -41,16 +41,32 @@ def empty_matches() -> Matches:
     return Matches(array("q"), array("q"), array("q"), [], [], bytearray(), [], [])
 
 
-def load_matches(con: sqlite3.Connection, alias: str = "data") -> Matches:
-    """All backbone matches in walk-forward order. Same-week matches are only ordered by
-    round (Sackmann has no match day), then match_id for determinism."""
+def window_sql(since: str | None = None, before: str | None = None, col: str = "e.start_date") -> tuple[str, list]:
+    """(SQL condition, params) for an edition-start window [since, before); "1" if open."""
+    cond, args = [], []
+    if since:
+        cond.append(f"{col} >= ?")
+        args.append(since)
+    if before:
+        cond.append(f"{col} < ?")
+        args.append(before)
+    return (" AND ".join(cond) or "1"), args
+
+
+def load_matches(con: sqlite3.Connection, alias: str = "data", since: str | None = None,
+                 before: str | None = None) -> Matches:
+    """All backbone matches in walk-forward order (editions starting in [since, before) when
+    given: a window never splits an edition). Same-week matches are only ordered by round
+    (Sackmann has no match day), then match_id for determinism."""
     m = empty_matches()
+    cond, args = window_sql(since, before)
     for mid, w, l, start, status, level, rnd, tour, surface in con.execute(
             f"""SELECT m.match_id, m.winner_id, m.loser_id, e.start_date, m.status, e.level,
                        m.round, t.tour, e.surface
                 FROM {alias}.matches m JOIN {alias}.tournament_edition e USING (edition_id)
                 JOIN {alias}.tournament t USING (tournament_id)
-                ORDER BY e.start_date, m.round_order, m.match_id"""):
+                WHERE {cond}
+                ORDER BY e.start_date, m.round_order, m.match_id""", args):
         m.match_id.append(mid); m.winner.append(w); m.loser.append(l)
         m.start.append(start); m.status.append(status); m.tour.append(tour)
         m.surface.append(surface)

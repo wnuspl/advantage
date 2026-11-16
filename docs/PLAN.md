@@ -84,6 +84,10 @@ Test not scored: nothing beat the live setting on val. In play stays form 0.02, 
 ### A5. State persistence + incremental replay
 New, nothing from v1: save state and context bookkeeping at cutoffs (monthly snapshots), and resume `run()` from them. Done when incremental replay equals full replay and a daily AcesAPI pull updates the predictor in seconds.
 
+**Done 2026-11-16.** `engine/state.py` + `scripts/state.py build|status|verify`. A snapshot at cutoff C (a month start; never splits an edition) holds the PointsState, context bookkeeping, tournament deciding-set rule history, edition rules and 11 years of tour-level predictions (for calibration), all keyed by **stable keys** (player and edition seed xref keys, tournament tour|name), because a tennis.db rebuild changes surrogate IDs. Validity: hash of overrides.csv + non-AcesAPI raw files + birth dates (old history), a stable-key hash of every match and its stats in the 400 days before C (late results; AcesAPI starts 2026-05-05), match count and score totals, and the model code + params. The latest valid snapshot is used; stale ones are skipped. `run(start_state=)`, `load_matches/attach(since=, before=, rule_last=, ctx_init=)` and copy-on-touch context resume make the window replay exact.
+- Real data (run 790, snapshots 2026-09/10/11-01, 30 MB each): resume from 2026-11-01 replays 302 matches in 5.4 s and equals the full replay (state, context, every prediction); `PointsPredictor.load` after a data change takes ~20 s (state + validity check + name index) vs ~300 s for a full replay; unchanged data 2.4 s from the ModelState cache. Tests: `tests/test_state.py` (resume = full replay at two cutoffs, as_of, stale on a changed score, IDs shifted).
+- Daily flow: `fetch_acesapi.py --pin` and `build_db.py` (~10 min, unchanged), then any predictor load resumes. Monthly: `state.py build` (~3 min). Snapshots go stale when a non-AcesAPI source or overrides.csv changes; `state.py status` shows which are valid.
+
 ## Track B: Kalshi retriever on a black-box predictor
 
 ### B1. Retriever
