@@ -113,6 +113,7 @@ def decide_all(rows: list[MarketSnapshot], books: dict, pol: Policy) -> list[Dec
 
 
 CLI_BANKROLL = 10.0                   # scripts/live.py, scripts/watch.py default (user, 2026-11-15)
+CLI_MODEL_WEIGHT = 0.3               # until fitted on settled Kalshi matches (user, 2026-11-15)
 
 
 def add_policy_args(ap) -> None:
@@ -120,8 +121,8 @@ def add_policy_args(ap) -> None:
     g = ap.add_argument_group("policy (engine/decide.py)")
     g.add_argument("--bankroll", type=float, default=CLI_BANKROLL, help="dollars (default $%(default)g)")
     g.add_argument("--kelly", type=float, default=Policy.kelly, help="Kelly fraction (1 = full Kelly)")
-    g.add_argument("--model-weight", type=float, default=Policy.model_weight,
-                   help="logit blend weight on the model (1 = model only, 0 = market only)")
+    g.add_argument("--model-weight", type=float, default=CLI_MODEL_WEIGHT,
+                   help="logit blend weight on the model (1 = model only, 0 = market only; default %(default)g)")
     g.add_argument("--max-stake", type=float, default=None, help="cap per match, dollars")
     g.add_argument("--max-total", type=float, default=Policy.max_total,
                    help="cap on summed stakes, fraction of bankroll (scaled down pro rata)")
