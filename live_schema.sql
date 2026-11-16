@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS snapshot (
   best_of_from  TEXT,
   final         TEXT,
   edition_id    INTEGER,
+  p_sd          REAL,                      -- SD of p_model under the ratings' variances (added 2026-11-16)
   PRIMARY KEY (poll_id, event)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_snapshot_event ON snapshot (event, poll_id);

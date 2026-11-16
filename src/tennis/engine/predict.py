@@ -23,6 +23,9 @@ shrink). No calibration in play: the alphas are fitted on pre-match predictions.
 state with a `problem`, or no known server, gives the pre-match probability with
 in_play=False and the reason in notes: callers must not act on it as an in-play price.
 
+`detail["p_sd"]`: the SD of the output probability under the ratings' own variances
+(p_spread; in play, the form-updated variances), for display as the model's certainty.
+
 `stale`: a player's last rated match is more than 120 days before the match (or there is
 none). A query dated before the latest replayed edition gets a note: its ratings already
 include later results (use `as_of` for a point-in-time prediction).
@@ -112,6 +115,16 @@ def tournament_rules(editions: dict, erule: dict) -> dict:
 
 def _sig(x: float) -> float:
     return 1 / (1 + math.exp(-x))
+
+
+def p_spread(f, xa: float, xb: float, va: float, vb: float, h: float = 0.01) -> float:
+    """SD of the output probability f(xa, xb) under the two serve logits' rating variances
+    (delta method, central differences): how far the price could move if the ratings are
+    off by their own uncertainty. Inactivity grows va/vb, so stale ratings get wider spreads.
+    It leaves out the market, the feed and model error beyond the ratings."""
+    da = (f(xa + h, xb) - f(xa - h, xb)) / (2 * h)
+    db = (f(xa, xb + h) - f(xa, xb - h)) / (2 * h)
+    return math.sqrt(da * da * va + db * db * vb)
 
 
 class PointsPredictor:
@@ -204,7 +217,11 @@ class PointsPredictor:
         cal = self.calibrated and q.tour not in p.raw_tours()
         alpha = calibrate.alpha_for(md.alphas, q.tour, q.best_of) if cal else 1.0
         p_cal = calibrate.apply(p_raw, alpha) if cal else p_raw
-        return {"x_a": xa, "x_b": xb, "v_a": va, "v_b": vb, "ctx_a": oa, "ctx_b": ob,
+        def f(a, b):
+            pr = points_rating.win_probability(st, a, b, va, vb, q.best_of, q.final)
+            return calibrate.apply(pr, alpha) if cal else pr
+        p_sd = p_spread(f, xa, xb, va, vb)
+        return {"x_a": xa, "x_b": xb, "v_a": va, "v_b": vb, "ctx_a": oa, "ctx_b": ob, "p_sd": p_sd,
                 "serve_a": _sig(xa), "serve_b": _sig(xb), "p_raw": p_raw, "p_prematch": p_cal,
                 "alpha": alpha, "rating_day": rating_day, "surface": surface,
                 "best_of": q.best_of, "final": q.final}
@@ -246,9 +263,12 @@ class PointsPredictor:
                 if self.live_form:
                     xa, va = points_rating.in_match_form(xa, va, *live.serve_a, self.form_var)
                     xb, vb = points_rating.in_match_form(xb, vb, *live.serve_b, self.form_var)
-                p_out = p_raw = points_rating.in_play_probability(
-                    st, xa, xb, va, vb, q.best_of, q.final, live.score(), live.a_serving,
-                    deciding_tb_points=getattr(live, "deciding_tb_points", 7))
+                def f(a, b):
+                    return points_rating.in_play_probability(
+                        st, a, b, va, vb, q.best_of, q.final, live.score(), live.a_serving,
+                        deciding_tb_points=getattr(live, "deciding_tb_points", 7))
+                p_out = p_raw = f(xa, xb)
+                d["p_sd"] = p_spread(f, xa, xb, va, vb) if 0 < p_out < 1 else 0.0
                 in_play = True
                 d.update(x_a_live=xa, x_b_live=xb, v_a_live=va, v_b_live=vb,
                          serve_a_live=_sig(xa), serve_b_live=_sig(xb), form=self.live_form)

@@ -182,6 +182,19 @@ class PredictorTest(unittest.TestCase):
         self.assertEqual(self.pp.deciding_rule(6), "tb")          # tournament 50: never seen
         self.assertEqual(self.pp.deciding_rule(None, 999), "tb")
 
+    def test_p_spread(self):
+        """p_sd: delta method under the ratings' variances; exact for f = sigmoid(a - b)."""
+        from tennis.engine.predict import p_spread
+        sig = lambda x: 1 / (1 + math.exp(-x))                                   # noqa: E731
+        f = lambda a, b: sig(a - b)                                              # noqa: E731
+        want = sig(0.3) * (1 - sig(0.3)) * math.sqrt(0.01 + 0.02)
+        self.assertAlmostEqual(p_spread(f, 0.5, 0.2, 0.01, 0.02), want, places=6)
+        d = self.pp.predict(self.q).detail
+        self.assertGreater(d["p_sd"], 0)
+        wider = p_spread(lambda a, b: pr.win_probability(self.pp.model.state, a, b, d["v_a"], d["v_b"], 3, "tb"),
+                         d["x_a"], d["x_b"], 4 * d["v_a"], 4 * d["v_b"])
+        self.assertGreater(wider, d["p_sd"])
+
     def test_pickle_round_trip(self):
         md = pickle.loads(pickle.dumps(self.pp.model))
         self.assertEqual(PointsPredictor(md).predict(self.q).p_a, self.pp.predict(self.q).p_a)
@@ -215,6 +228,12 @@ class InPlayTest(unittest.TestCase):
         no_form = PointsPredictor(self.pp.model, live_form=False).predict(MatchQuery(**{**self.q.__dict__, "live": ls}))
         self.assertEqual(no_form.p_a, pr.in_play_probability(self.pp.model.state, d["x_a"], d["x_b"], d["v_a"],
                                                               d["v_b"], 3, "tb", ls.score(), False))
+
+    def test_in_play_spread_shrinks_late(self):
+        early = self.live(live_from_score("", "", True)).detail["p_sd"]
+        late = self.live(live_from_score("6-1 5-1", "40-0", True, serve_a=(40, 50), serve_b=(20, 45))).detail["p_sd"]
+        self.assertGreater(early, 0)
+        self.assertLess(late, early)
 
     def test_score_moves_the_probability(self):
         up = self.live(live_from_score("6-1 5-1", "40-0", True))

@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Live Markets</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e2dd;
+  --accent: #2f6f4f; --accent-soft: #e4efe8; --up: #2f7d46; --down: #b3412f; --hover: #f1f0eb;
+  --live: #c8372d; --live-soft: #fbe9e7; --warn: #a86b00; --warn-soft: #fbf1dc;
+  --mkt: #8a8a83; --model: #2f6f4f; --band: rgba(47,111,79,.18);
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151614; --panel: #1d1f1c; --text: #e8e7e2; --muted: #9a9a92; --line: #30322e;
+    --accent: #7fc19b; --accent-soft: #24352b; --up: #7fc19b; --down: #e8846f; --hover: #252723;
+    --live: #f07a6e; --live-soft: #3a2220; --warn: #e3b25a; --warn-soft: #362c19;
+    --mkt: #8d8d86; --model: #7fc19b; --band: rgba(127,193,155,.22);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151614; --panel: #1d1f1c; --text: #e8e7e2; --muted: #9a9a92; --line: #30322e;
+  --accent: #7fc19b; --accent-soft: #24352b; --up: #7fc19b; --down: #e8846f; --hover: #252723;
+  --live: #f07a6e; --live-soft: #3a2220; --warn: #e3b25a; --warn-soft: #362c19;
+  --mkt: #8d8d86; --model: #7fc19b; --band: rgba(127,193,155,.22);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.page { max-width: 1400px; margin: 0 auto; padding: 0 16px 24px; }
+header { padding: 16px 0 6px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+h1 { font-size: 20px; margin: 0; font-weight: 650; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  font-weight: 650; margin: 22px 0 8px; display: flex; align-items: center; gap: 8px; }
+h2 .n { background: var(--line); color: var(--text); border-radius: 10px; padding: 0 7px; font-size: 12px; letter-spacing: 0; }
+.health { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--up); flex: none; }
+.dot.warn { background: var(--warn); } .dot.bad { background: var(--live); }
+.dot.pulse { animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dot.pulse { animation: none; } }
+
+/* KPI tiles double as quick filters */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0 4px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.kpi:hover { background: var(--hover); }
+.kpi[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.kpi .v { font-size: 24px; font-weight: 680; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.kpi .k { color: var(--muted); font-size: 12px; }
+.kpi.live .v { color: var(--live); } .kpi.bets .v { color: var(--accent); }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 12px 0 4px; }
+.group { display: flex; align-items: center; gap: 6px; }
+.group > .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+button, select, input { font: inherit; color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+button { cursor: pointer; }
+button:hover { background: var(--hover); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+input[type=search] { width: 170px; }
+input[type=number] { width: 58px; }
+label.chk { display: inline-flex; align-items: center; gap: 6px; color: var(--text); cursor: pointer; }
+
+/* Flagged bets */
+.bets { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
+.bet { background: var(--panel); border: 1px solid var(--accent); border-left-width: 4px; border-radius: 8px; padding: 12px 14px; }
+.bet .who { font-size: 17px; font-weight: 680; }
+.bet .vs { color: var(--muted); font-size: 13px; }
+.bet .nums { display: grid; grid-template-columns: repeat(4, auto); gap: 2px 14px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.bet .nums .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.bet .nums .v { font-weight: 650; }
+.empty { color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13px; }
+
+/* Match table */
+.wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; background: var(--panel); }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text); }
+th.sorted { color: var(--accent); }
+td.r, th.r { text-align: right; }
+tbody tr.m { cursor: pointer; }
+tbody tr.m:hover { background: var(--hover); }
+tbody tr.m.open { background: var(--hover); }
+tr.m.dimrow td { opacity: .62; }
+tr.m.dimrow:hover td { opacity: 1; }
+.when { white-space: nowrap; font-size: 13px; }
+.badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .04em; border-radius: 4px; padding: 1px 6px; }
+.badge.live { color: var(--live); background: var(--live-soft); }
+.badge.stale { color: var(--warn); background: var(--warn-soft); }
+.badge.bet { color: var(--accent); background: var(--accent-soft); }
+.score { font-family: var(--mono); font-size: 12px; color: var(--text); margin-top: 2px; white-space: nowrap; }
+.players { min-width: 210px; }
+.pl { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.pl.fav { font-weight: 650; }
+.srv { width: 6px; height: 6px; border-radius: 50%; background: #d4b106; flex: none; }
+.srv.off { background: transparent; }
+.meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.prob { min-width: 190px; }
+.pbar { position: relative; height: 18px; margin-top: 3px; }
+.pbar .track { position: absolute; left: 0; right: 0; top: 8px; height: 2px; background: var(--line); }
+.pbar .mid { position: absolute; left: 50%; top: 4px; width: 1px; height: 10px; background: var(--line); }
+.pbar .band { position: absolute; top: 5px; height: 8px; background: var(--band); border-radius: 4px; }
+.pbar .mk { position: absolute; top: 2px; width: 2px; height: 14px; background: var(--mkt); margin-left: -1px; }
+.pbar .md { position: absolute; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--model); margin-left: -5px;
+  box-shadow: 0 0 0 2px var(--panel); }
+.plab { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.plab b { color: var(--text); font-weight: 650; }
+.edge { font-weight: 700; white-space: nowrap; }
+.edge.e0 { color: var(--muted); font-weight: 500; }
+.edge.e1 { color: var(--text); }
+.edge.e2 { color: var(--accent); }
+.edge .on { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.conf { white-space: nowrap; }
+.cbar { display: inline-block; width: 42px; height: 6px; border-radius: 3px; background: var(--line); vertical-align: middle; margin-left: 6px; overflow: hidden; }
+.cbar i { display: block; height: 100%; background: var(--accent); }
+.fresh { white-space: nowrap; font-size: 13px; }
+.fresh .ok { color: var(--muted); } .fresh .old { color: var(--warn); font-weight: 600; }
+.dec { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.dec.yes { color: var(--accent); font-weight: 650; }
+svg.spark { display: block; }
+svg.spark .m { stroke: var(--model); fill: none; stroke-width: 1.6; }
+svg.spark .k { stroke: var(--mkt); fill: none; stroke-width: 1.2; stroke-dasharray: 2 2; }
+svg.spark .h { stroke: var(--line); stroke-width: 1; }
+tr.detail td { background: var(--bg); padding: 12px 14px 14px; }
+.dgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 20px; font-size: 13px; }
+.dgrid div { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dotted var(--line); padding: 2px 0; }
+.dgrid div span:first-child { color: var(--muted); }
+.notes { margin-top: 8px; color: var(--muted); font-size: 12px; }
+details { margin-top: 6px; }
+summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 12px; margin: 8px 2px 0; align-items: center; }
+.legend i { display: inline-block; vertical-align: middle; margin-right: 5px; }
+.status { padding: 24px; color: var(--muted); text-align: center; }
+.banner { margin: 10px 0 0; padding: 9px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; }
+.won { color: var(--up); font-weight: 650; } .lost { color: var(--down); font-weight: 650; }
+/* Phone: each match becomes a card; the trend column is dropped */
+@media (max-width: 720px) {
+  .kpis { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .kpi { padding: 7px 9px; }
+  .kpi .v { font-size: 19px; }
+  .kpi .k { font-size: 11px; }
+  input[type=search] { width: 100%; }
+  .controls .group:last-child { flex: 1 1 100%; }
+  #tbl thead { display: none; }
+  #tbl, #tbl tbody { display: block; }
+  #tbl tr.m { display: grid; grid-template-columns: 1fr auto; grid-template-areas:
+      "pl when" "prob prob" "edge conf" "fresh dec"; gap: 4px 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  #tbl tr.m td { border: 0; padding: 0; }
+  #tbl .c-when { grid-area: when; text-align: right; } #tbl .c-pl { grid-area: pl; min-width: 0; }
+  #tbl .c-prob { grid-area: prob; min-width: 0; } #tbl .c-edge { grid-area: edge; text-align: left; }
+  #tbl .c-conf { grid-area: conf; } #tbl .c-fresh { grid-area: fresh; text-align: left; }
+  #tbl .c-dec { grid-area: dec; text-align: right; } #tbl .c-spark { display: none; }
+  #tbl .edge .on { display: inline; margin-left: 4px; }
+  #tbl .pl { white-space: normal; }
+  #tbl tr.detail { display: block; } #tbl tr.detail td { display: block; }
+}
+footer { color: var(--muted); font-size: 12px; padding-top: 18px; }
+footer p { margin: 4px 0; }
+</style>
+</head>
+<body>
+<script src="/nav.js"></script>
+<div class="page">
+<header>
+  <h1>Live markets</h1>
+  <span class="health" id="health"><span class="dot" id="hdot"></span><span id="htext">Loading…</span></span>
+</header>
+<div id="banner"></div>
+
+<div class="kpis" id="kpis"></div>
+
+<div class="controls">
+  <div class="group"><span class="lbl">Tour</span>
+    <div class="seg" id="tour"><button data-v="all">All</button><button data-v="ATP">ATP</button><button data-v="ATP Challenger">ATP Ch</button><button data-v="WTA">WTA</button><button data-v="WTA 125">WTA 125</button></div></div>
+  <div class="group"><span class="lbl">Status</span>
+    <div class="seg" id="status"><button data-v="all">All</button><button data-v="live">Live</button><button data-v="not_started">Upcoming</button></div></div>
+  <div class="group"><span class="lbl">Ratings</span>
+    <div class="seg" id="fresh"><button data-v="all">All</button><button data-v="fresh" title="Hide matches where a player's last rated match is over 120 days old">Fresh only</button></div></div>
+  <div class="group"><span class="lbl">Min edge</span><input type="number" id="minedge" min="0" max="50" step="1" value="0" aria-label="Minimum edge in percentage points"><span class="meta">pts</span></div>
+  <div class="group"><input type="search" id="q" placeholder="Player or event" aria-label="Search"></div>
+</div>
+
+<section id="betsec"></section>
+
+<h2>Matches <span class="n" id="nmatch">0</span></h2>
+<div class="wrap"><table id="tbl">
+  <thead><tr>
+    <th class="sortable" data-k="start">When</th>
+    <th>Match</th>
+    <th class="prob">Model vs market <span class="meta">(P first player)</span></th>
+    <th class="sortable r" data-k="edge" title="Model minus market mid, for the player the model likes more than the market does">Edge</th>
+    <th class="sortable r" data-k="conf" title="How likely the model's side really is better than the market price, given the uncertainty of the two players' ratings (rating noise only: not model error, not feed lag)">Confidence</th>
+    <th class="sortable r" data-k="fresh" title="Days since each player's last rated match (over 120 = stale: the policy won't bet)">Rating age</th>
+    <th>Trend <span class="meta">6 h</span></th>
+    <th>Policy</th>
+  </tr></thead>
+  <tbody></tbody>
+</table></div>
+<div class="legend">
+  <span><i style="width:10px;height:10px;border-radius:50%;background:var(--model)"></i>Model</span>
+  <span><i style="width:18px;height:8px;border-radius:4px;background:var(--band)"></i>Model ±1 SD (rating uncertainty)</span>
+  <span><i style="width:2px;height:12px;background:var(--mkt)"></i>Market mid (overround removed)</span>
+  <span>Trend: <i style="width:16px;height:0;border-top:2px solid var(--model)"></i>model <i style="width:16px;height:0;border-top:2px dashed var(--mkt);margin-left:6px"></i>market</span>
+</div>
+<div class="status" id="empty" hidden></div>
+<details id="unpriced" hidden><summary></summary><div class="wrap"><table><tbody></tbody></table></div></details>
+
+<h2>Settled, last 48 h <span class="n" id="nsettled">0</span></h2>
+<div id="settled"></div>
+
+<details id="alertsec"><summary>Recent alerts</summary><div id="alerts"></div></details>
+
+<footer>
+  <p>Read-only: the watch records Kalshi's public markets every minute and nothing here places orders. Model: points_v1 run 790 with an in-play form update; in-play prices are not calibrated.</p>
+  <p>Confidence and the ±1 SD band only reflect the ratings' own variance; the model can also be wrong in ways that variance doesn't capture.</p>
+  <p>Ratings from Jeff Sackmann's tennis data (CC BY-NC-SA 4.0) and AcesAPI results. Non-commercial use; keep this link private.</p>
+</footer>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const REFRESH_MS = 20000;
+const STALE_DAYS = 120;
+const SETTLED_SHOWN = 12;
+const S = { data: null, tour: "all", status: "all", fresh: "all", minedge: 0, q: "", only: null,
+            sort: { key: "edge", dir: -1 }, open: new Set(), allSettled: false, timer: null, fetching: false };
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = (x, d = 0) => x == null ? "–" : (100 * x).toFixed(d) + "%";
+const cents = (x) => x == null ? "–" : Math.round(100 * x) + "¢";
+const money = (x) => x == null ? "–" : "$" + x.toFixed(2);
+const lastName = (n) => { const p = String(n || "").trim().split(/\s+/); return p.length > 1 ? p.slice(1).join(" ") : p[0]; };
+
+// standard normal CDF (Abramowitz-Stegun 7.1.26 via erf)
+function Phi(z) {
+  const t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z / 2);
+  return z >= 0 ? (1 + y) / 2 : (1 - y) / 2;
+}
+
+function ago(iso, now) {
+  const s = Math.round((now - Date.parse(iso)) / 1000);
+  if (s < 90) return `${s}s`;
+  if (s < 5400) return `${Math.round(s / 60)} min`;
+  if (s < 172800) return `${Math.round(s / 3600)} h`;
+  return `${Math.round(s / 86400)} d`;
+}
+function until(iso, now) {
+  const m = Math.round((Date.parse(iso) - now) / 60000);
+  if (m <= 0) return null;
+  if (m < 60) return `in ${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `in ${h}h ${String(m % 60).padStart(2, "0")}m` : `in ${Math.round(h / 24)}d`;
+}
+const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const dayClock = (iso) => new Date(iso).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+
+// derived numbers for one match row
+function derive(m) {
+  const d = Object.create(m);
+  d.priced = !m.skip && m.p_model != null;
+  d.e = d.priced && m.p_market != null ? m.p_model - m.p_market : null;
+  d.edge = d.e == null ? null : Math.abs(d.e);
+  d.edgeSide = d.e == null ? null : d.e >= 0 ? "a" : "b";
+  d.conf = d.e != null && m.p_sd ? Phi(Math.abs(d.e) / m.p_sd) : null;
+  d.ages = [m.a_stale_days, m.b_stale_days];
+  d.maxAge = Math.max(...d.ages.map((x) => x ?? Infinity));
+  d.isStale = !!m.stale;
+  d.bet = m.decision && m.decision.contracts > 0;
+  d.live = m.status === "live";
+  return d;
+}
+
+function kpiCounts(rows) {
+  const priced = rows.filter((r) => r.priced);
+  return {
+    live: rows.filter((r) => r.live).length,
+    upcoming: rows.filter((r) => r.status === "not_started").length,
+    bets: rows.filter((r) => r.bet).length,
+    big: priced.filter((r) => r.edge != null && r.edge >= 0.05).length,
+    stale: priced.filter((r) => r.isStale).length,
+  };
+}
+
+function passes(r, ignoreOnly = false) {
+  if (S.tour !== "all" && r.tour_label !== S.tour) return false;
+  if (S.status !== "all" && r.status !== S.status) return false;
+  if (S.fresh === "fresh" && (r.isStale || !r.priced)) return false;
+  if (S.minedge > 0 && !(r.edge != null && r.edge * 100 >= S.minedge)) return false;
+  if (S.q) {
+    const hay = `${r.a.name} ${r.b.name} ${r.tournament || ""} ${r.title}`.toLowerCase();
+    if (!hay.includes(S.q)) return false;
+  }
+  if (!ignoreOnly && S.only) {
+    if (S.only === "live" && !r.live) return false;
+    if (S.only === "upcoming" && r.status !== "not_started") return false;
+    if (S.only === "bets" && !r.bet) return false;
+    if (S.only === "big" && !(r.edge != null && r.edge >= 0.05)) return false;
+    if (S.only === "stale" && !r.isStale) return false;
+  }
+  return true;
+}
+
+function sortRows(rows) {
+  const k = S.sort.key, dir = S.sort.dir;
+  const val = (r) => k === "start" ? (r.live ? -Infinity : Date.parse(r.start || 0))
+    : k === "edge" ? r.edge : k === "conf" ? r.conf : k === "fresh" ? (Number.isFinite(r.maxAge) ? r.maxAge : 1e9) : 0;
+  return rows.sort((a, b) => {
+    // bets first, then live, whatever the sort: they are what needs attention
+    if (a.bet !== b.bet) return a.bet ? -1 : 1;
+    const va = val(a), vb = val(b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return (va - vb) * dir;
+  });
+}
+
+// ---------------------------------------------------------------- rendering
+
+function renderHealth(d) {
+  const now = Date.now(), dot = $("#hdot"), txt = $("#htext");
+  dot.className = "dot";
+  if (!d.poll) { dot.classList.add("bad"); txt.textContent = "No successful poll recorded yet"; return; }
+  const age = (now - Date.parse(d.poll.as_of)) / 1000;
+  const every = d.watch ? d.watch.every_s : 60;
+  if (age > Math.max(600, every * 10)) dot.classList.add("bad");
+  else if (age > Math.max(180, every * 3)) dot.classList.add("warn");
+  else dot.classList.add("pulse");
+  txt.textContent = `Kalshi polled ${ago(d.poll.as_of, now)} ago · every ${Math.round(every)}s · ${d.watch ? d.watch.predictor : ""}`;
+  const b = $("#banner");
+  const msgs = [];
+  if (age > Math.max(600, every * 10)) msgs.push(`The watch's last good poll was ${ago(d.poll.as_of, now)} ago: prices below may be out of date. Check advantage-watch on the server.`);
+  if (d.error && Date.parse(d.error.as_of) > Date.parse(d.poll.as_of)) msgs.push(`Latest poll failed (${ago(d.error.as_of, now)} ago): ${d.error.error}`);
+  b.innerHTML = msgs.map((m) => `<div class="banner">${esc(m)}</div>`).join("");
+}
+
+function renderKpis(rows) {
+  const c = kpiCounts(rows.filter((r) => passes(r, true)));
+  const tiles = [
+    ["live", "live", c.live, "Live now"],
+    ["upcoming", "upcoming", c.upcoming, "Upcoming"],
+    ["bets", "bets", c.bets, "Flagged bets"],
+    ["big", "big", c.big, "Edge ≥ 5 pts"],
+    ["stale", "stale", c.stale, "Stale ratings"],
+  ];
+  $("#kpis").innerHTML = tiles.map(([cls, only, v, k]) =>
+    `<button class="kpi ${cls}" data-only="${only}" aria-pressed="${S.only === only}" title="Show only these (click again to clear)"><div class="v">${v}</div><div class="k">${k}</div></button>`).join("");
+  for (const b of $("#kpis").querySelectorAll(".kpi")) {
+    b.onclick = () => { const o = b.dataset.only; S.only = S.only === o ? null : o; save(); render(); };
+  }
+}
+
+function renderBets(rows) {
+  const bets = rows.filter((r) => r.bet && passes(r, true));
+  const sec = $("#betsec");
+  if (!bets.length) {
+    const pol = S.data.watch ? S.data.watch.policy : null;
+    const why = pol ? `The policy needs fresh ratings${pol.in_play ? "" : ", a match not yet started"} and an edge that survives the spread and fees.` : "";
+    sec.innerHTML = `<h2>Flagged bets <span class="n">0</span></h2><div class="empty">No bet flagged right now. ${esc(why)}</div>`;
+    return;
+  }
+  sec.innerHTML = `<h2>Flagged bets <span class="n">${bets.length}</span></h2><div class="bets">` + bets.map((r) => {
+    const dc = r.decision, on = dc.side === "a" ? r.a : r.b, other = dc.side === "a" ? r.b : r.a;
+    return `<div class="bet">
+      <div class="meta">${esc(r.tour_label)} · ${esc(r.tournament || "")} · ${r.live ? '<span class="badge live">LIVE</span>' : esc(until(r.start, Date.now()) || "due")}</div>
+      <div class="who">${esc(on.name)}</div>
+      <div class="vs">vs ${esc(other.name)}</div>
+      <div class="nums">
+        <span class="k">Model</span><span class="k">Ask</span><span class="k">Stake</span><span class="k">EV</span>
+        <span class="v">${pct(dc.p_side)}</span><span class="v">${cents(dc.ask)}</span>
+        <span class="v">${dc.contracts} · ${money(dc.cost)}</span><span class="v">${money(dc.ev)}</span>
+      </div>
+      <div class="meta" style="margin-top:6px">Confidence ${r.conf == null ? "–" : pct(r.conf)} · edge ${r.edge == null ? "–" : (100 * r.edge).toFixed(1)} pts vs mid</div>
+    </div>`;
+  }).join("") + "</div>";
+}
+
+function pbar(r) {
+  if (!r.priced) return `<span class="meta">${esc(r.skip || "no prediction")}</span>`;
+  const x = (p) => `${(100 * Math.min(1, Math.max(0, p))).toFixed(1)}%`;
+  let band = "";
+  if (r.p_sd) {
+    const lo = Math.max(0, r.p_model - r.p_sd), hi = Math.min(1, r.p_model + r.p_sd);
+    band = `<div class="band" style="left:${x(lo)};width:${(100 * (hi - lo)).toFixed(1)}%"></div>`;
+  }
+  const mk = r.p_market == null ? "" : `<div class="mk" style="left:${x(r.p_market)}" title="Market ${pct(r.p_market, 1)}"></div>`;
+  return `<div class="plab"><span>Model <b>${pct(r.p_model)}</b>${r.p_sd ? ` <span title="±1 SD from rating uncertainty">±${Math.round(100 * r.p_sd)}</span>` : ""}</span><span>Market <b>${pct(r.p_market)}</b></span></div>
+    <div class="pbar"><div class="track"></div><div class="mid"></div>${band}${mk}<div class="md" style="left:${x(r.p_model)}" title="Model ${pct(r.p_model, 1)}"></div></div>`;
+}
+
+function spark(r) {
+  const h = r.hist || [];
+  if (h.length < 2) return '<span class="meta">–</span>';
+  const W = 96, H = 30, t0 = Date.parse(h[0][0]), t1 = Date.parse(h[h.length - 1][0]) || t0 + 1;
+  const X = (t) => ((Date.parse(t) - t0) / Math.max(1, t1 - t0) * (W - 2) + 1).toFixed(1);
+  const Y = (p) => ((1 - p) * (H - 4) + 2).toFixed(1);
+  const line = (i) => {
+    let d = "", pen = false;
+    for (const pt of h) {
+      if (pt[i] == null) { pen = false; continue; }
+      d += `${pen ? "L" : "M"}${X(pt[0])},${Y(pt[i])}`; pen = true;
+    }
+    return d;
+  };
+  const liveAt = h.find((p) => p[3]);
+  const lv = liveAt ? `<line class="h" x1="${X(liveAt[0])}" x2="${X(liveAt[0])}" y1="0" y2="${H}" stroke-dasharray="1 2"/>` : "";
+  return `<svg class="spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Model and market over the last hours">
+    <line class="h" x1="0" x2="${W}" y1="${Y(0.5)}" y2="${Y(0.5)}"/>${lv}
+    <path class="k" d="${line(2)}"/><path class="m" d="${line(1)}"/></svg>`;
+}
+
+function whenCell(r) {
+  const now = Date.now();
+  if (r.live) return `<span class="badge live">LIVE</span>${r.score ? `<div class="score">${esc(r.score.replace(/\s*\*[AB] serving/, ""))}</div>` : ""}`;
+  if (!r.start) return '<span class="meta">–</span>';
+  const u = until(r.start, now);
+  return `<div class="when">${u ? esc(u) : "due"}</div><div class="meta">${esc(dayClock(r.start))}</div>`;
+}
+
+function playersCell(r) {
+  const favA = r.p_model != null ? r.p_model >= 0.5 : r.p_market != null ? r.p_market >= 0.5 : false;
+  const srvA = r.live && r.a_serving === 1, srvB = r.live && r.a_serving === 0;
+  return `<div class="pl ${favA ? "fav" : ""}"><span class="srv ${srvA ? "" : "off"}"></span>${esc(r.a.name)}</div>
+    <div class="pl ${!favA ? "fav" : ""}"><span class="srv ${srvB ? "" : "off"}"></span>${esc(r.b.name)}</div>
+    <div class="meta">${esc(r.tour_label)} · ${esc(r.tournament || "")}${r.surface ? " · " + esc(r.surface) : ""}</div>`;
+}
+
+function edgeCell(r) {
+  if (r.edge == null) return '<span class="meta">–</span>';
+  const pts = 100 * r.edge, cls = pts >= 5 ? "e2" : pts >= 2 ? "e1" : "e0";
+  const on = r.edgeSide === "a" ? r.a.name : r.b.name;
+  return `<span class="edge ${cls}">+${pts.toFixed(1)}<span class="on">${esc(lastName(on))}</span></span>`;
+}
+
+function confCell(r) {
+  if (r.conf == null) return `<span class="meta" title="${r.priced ? "No rating spread recorded for this poll (older watch)" : ""}">–</span>`;
+  const c = r.conf, w = Math.max(0, (c - 0.5) * 2);    // 50% = coin flip, 100% = sure
+  return `<span class="conf" title="P(the model's side beats the market price | rating noise)">${pct(c)}<span class="cbar"><i style="width:${(100 * w).toFixed(0)}%"></i></span></span>`;
+}
+
+function freshCell(r) {
+  if (!r.priced) return '<span class="meta">–</span>';
+  const one = (d, name) => {
+    if (d == null) return `<span class="old" title="${esc(name)}: no rated match">new</span>`;
+    const old = d > STALE_DAYS;
+    return `<span class="${old ? "old" : "ok"}" title="${esc(name)}: last rated match ${d} days before the match">${d}d</span>`;
+  };
+  return `<span class="fresh">${one(r.a_stale_days, r.a.name)} / ${one(r.b_stale_days, r.b.name)}</span>${r.isStale ? '<div><span class="badge stale">STALE</span></div>' : ""}`;
+}
+
+function decisionCell(r) {
+  const dc = r.decision;
+  if (!dc) return '<span class="dec">–</span>';
+  if (dc.contracts > 0) {
+    const on = dc.side === "a" ? r.a.name : r.b.name;
+    return `<span class="dec yes">Bet ${esc(lastName(on))}<br>${dc.contracts} @ ${cents(dc.ask)}</span>`;
+  }
+  const short = { "stale rating": "Stale rating", "in play (policy off)": "In play: off", "no edge after spread and fees": "No edge after costs" };
+  return `<span class="dec" title="${esc(dc.reason)}">${esc(short[dc.reason] || dc.reason.replace(/^not priced: /, ""))}</span>`;
+}
+
+function detailRow(r) {
+  const dc = r.decision || {};
+  const askEdge = (side) => {
+    const p = side === "a" ? r.p_model : r.p_model == null ? null : 1 - r.p_model, ask = side === "a" ? r.ask_a : r.ask_b;
+    return p == null || ask == null ? "–" : `${(100 * (p - ask)).toFixed(1)} pts`;
+  };
+  const items = [
+    ["P(model) raw", pct(r.p_raw, 1)], ["P(model)", pct(r.p_model, 1)], ["Model ±1 SD", r.p_sd == null ? "–" : `±${(100 * r.p_sd).toFixed(1)} pts`],
+    ["P(market) mid", pct(r.p_market, 1)],
+    [`Ask ${lastName(r.a.name)}`, cents(r.ask_a)], [`Ask ${lastName(r.b.name)}`, cents(r.ask_b)],
+    [`Model − ask, ${lastName(r.a.name)}`, askEdge("a")], [`Model − ask, ${lastName(r.b.name)}`, askEdge("b")],
+    ["In-play price", r.in_play ? "yes (uncalibrated)" : "no"],
+    ["Surface", `${r.surface || "?"}${r.surface_from ? " (" + r.surface_from + ")" : ""}`],
+    ["Format", `best of ${r.best_of ?? "?"}${r.final ? ", " + r.final : ""} (${r.best_of_from || "?"})`],
+    [`Last rated ${lastName(r.a.name)}`, `${r.a_last_rated || "never"} (${r.a_resolved || "?"})`],
+    [`Last rated ${lastName(r.b.name)}`, `${r.b_last_rated || "never"} (${r.b_resolved || "?"})`],
+  ];
+  if (r.live && r.serve_a_played != null) {
+    items.push([`Serve pts won ${lastName(r.a.name)}`, `${r.serve_a_won}/${r.serve_a_played} (${pct(r.serve_a_won / Math.max(1, r.serve_a_played))})`]);
+    items.push([`Serve pts won ${lastName(r.b.name)}`, `${r.serve_b_won}/${r.serve_b_played} (${pct(r.serve_b_won / Math.max(1, r.serve_b_played))})`]);
+  }
+  if (r.live_problem) items.push(["Live feed", r.live_problem]);
+  const mw = S.data.watch && S.data.watch.policy ? S.data.watch.policy.model_weight : null;
+  if (dc.p_use != null) items.push([`Policy P(${lastName(r.a.name)})`, `${pct(dc.p_use, 1)}${mw != null ? ` (model weight ${mw}, rest market)` : ""}`]);
+  items.push(["Policy", dc.contracts > 0 ? `bet ${dc.contracts} for ${money(dc.cost)} + ${money(dc.fees)} fees, EV ${money(dc.ev)}` : (dc.reason || "–")]);
+  return `<tr class="detail"><td colspan="8"><div class="dgrid">${items.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div>
+    <div class="notes">${esc(r.event)} · first seen ${esc(dayClock(r.first_seen))}</div></td></tr>`;
+}
+
+function renderTable(rows) {
+  const shown = sortRows(rows.filter((r) => r.priced && passes(r)));
+  $("#nmatch").textContent = shown.length;
+  for (const th of document.querySelectorAll("#tbl th.sortable")) {
+    th.classList.toggle("sorted", th.dataset.k === S.sort.key);
+  }
+  $("#tbl tbody").innerHTML = shown.map((r) => {
+    const open = S.open.has(r.event);
+    const dim = !r.bet && !r.live && (r.isStale || r.edge == null || r.edge < 0.02);   // stale: likely a rating blind spot
+    return `<tr class="m ${open ? "open" : ""} ${dim ? "dimrow" : ""}" data-ev="${esc(r.event)}" aria-expanded="${open}">
+      <td class="c-when">${whenCell(r)}</td><td class="players c-pl">${playersCell(r)}</td><td class="prob c-prob">${pbar(r)}</td>
+      <td class="r c-edge">${edgeCell(r)}</td><td class="r c-conf">${confCell(r)}</td><td class="r c-fresh">${freshCell(r)}</td>
+      <td class="c-spark">${spark(r)}</td><td class="c-dec">${decisionCell(r)}</td></tr>${open ? detailRow(r) : ""}`;
+  }).join("");
+  const empty = $("#empty");
+  empty.hidden = shown.length > 0;
+  empty.textContent = rows.length ? "No match passes these filters." : "No open matches on Kalshi right now.";
+
+  const un = rows.filter((r) => !r.priced && passes(r, true));
+  const det = $("#unpriced");
+  det.hidden = !un.length;
+  det.querySelector("summary").textContent = `Not priced (${un.length}): the model can't name or rate a player`;
+  det.querySelector("tbody").innerHTML = un.map((r) => `<tr><td>${whenCell(r)}</td><td class="players">${playersCell(r)}</td>
+    <td>Market ${pct(r.p_market)}</td><td class="meta">${esc(r.skip)}</td></tr>`).join("");
+}
+
+function renderSettled(list) {
+  const items = list.filter((s) => (S.tour === "all" || s.tour_label === S.tour) &&
+    (!S.q || `${s.a.name} ${s.b.name} ${s.tournament || ""}`.toLowerCase().includes(S.q)));
+  $("#nsettled").textContent = items.length;
+  if (!items.length) { $("#settled").innerHTML = '<div class="empty">Nothing settled in the last 48 hours.</div>'; return; }
+  let right = 0, called = 0, mright = 0;
+  const rows = items.map((s, i) => {
+    const w = s.winner, pre = s.pre;
+    const win = w === "a" ? s.a.name : w === "b" ? s.b.name : null;
+    let model = "–", market = "–", verdict = "";
+    if (pre && w && pre.p_model != null) {
+      const pm = w === "a" ? pre.p_model : 1 - pre.p_model, pk = pre.p_market == null ? null : w === "a" ? pre.p_market : 1 - pre.p_market;
+      model = pct(pm); market = pct(pk);
+      called++; if (pm > 0.5) right++; if (pk != null && pk > 0.5) mright++;
+      verdict = pk == null ? "" : pm > pk ? '<span class="won">model closer</span>' : pm < pk ? '<span class="lost">market closer</span>' : "";
+    }
+    let bet = '<span class="meta">–</span>';
+    if (s.bet) {
+      const ok = s.bet.side === w;
+      bet = `<span class="${ok ? "won" : "lost"}">${ok ? "won" : "lost"}</span> <span class="meta">${s.bet.contracts} @ ${cents(s.bet.ask)}</span>`;
+    }
+    return `<tr ${i >= SETTLED_SHOWN && !S.allSettled ? "hidden" : ""}><td class="meta">${esc(dayClock(s.seen_at))}</td>
+      <td class="players">${win ? `<div class="pl fav">${esc(win)}</div><div class="meta">beat ${esc(w === "a" ? s.b.name : s.a.name)}${s.final_score ? " · " + esc(s.final_score) : ""}${s.match_status && s.match_status !== "ended" ? " · " + esc(s.match_status) : ""}</div>`
+        : `<div class="pl">${esc(s.a.name)} vs ${esc(s.b.name)}</div><div class="meta">no winner (void)${s.match_status ? " · " + esc(s.match_status) : ""}</div>`}
+      <div class="meta">${esc(s.tour_label)} · ${esc(s.tournament || "")}</div></td>
+      <td class="r" title="Pre-match model probability for the winner">${model}</td><td class="r" title="Pre-match market probability for the winner">${market}</td>
+      <td>${verdict}</td><td>${bet}</td></tr>`;
+  }).join("");
+  const sum = called ? `<div class="meta" style="margin:0 2px 6px">Favourite won: model ${right}/${called}, market ${mright}/${called} (pre-match, last poll before the start).</div>` : "";
+  $("#settled").innerHTML = sum + `<div class="wrap"><table><thead><tr><th>Settled</th><th>Result</th><th class="r">Model</th><th class="r">Market</th><th>Closer</th><th>Flagged bet</th></tr></thead><tbody>${rows}</tbody></table></div>` +
+    (items.length > SETTLED_SHOWN ? `<button id="moreset" style="margin-top:8px">${S.allSettled ? "Show fewer" : `Show all ${items.length}`}</button>` : "");
+  const more = $("#moreset");
+  if (more) more.onclick = () => { S.allSettled = !S.allSettled; renderSettled(S.data.settled || []); };
+}
+
+function renderAlerts(list) {
+  $("#alertsec").hidden = !list.length;
+  $("#alerts").innerHTML = `<div class="wrap"><table><tbody>${list.map((a) => `<tr><td class="meta">${esc(dayClock(a.as_of))}</td>
+    <td><b>${esc(a.title)}</b><div class="meta">${esc(a.message)}</div></td><td class="meta">${esc(a.kind)} · ${esc(a.status)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function render() {
+  const d = S.data;
+  if (!d) return;
+  for (const [id, key] of [["#tour", "tour"], ["#status", "status"], ["#fresh", "fresh"]]) {
+    for (const b of document.querySelectorAll(`${id} button`)) b.setAttribute("aria-pressed", String(b.dataset.v === S[key]));
+  }
+  const rows = d.matches.map(derive);
+  renderHealth(d);
+  renderKpis(rows);
+  renderBets(rows);
+  renderTable(rows);
+  renderSettled(d.settled || []);
+  renderAlerts(d.alerts || []);
+}
+
+// ---------------------------------------------------------------- state, events, refresh
+
+function save() {
+  const p = new URLSearchParams();
+  if (S.tour !== "all") p.set("tour", S.tour);
+  if (S.status !== "all") p.set("status", S.status);
+  if (S.fresh !== "all") p.set("fresh", S.fresh);
+  if (S.minedge) p.set("edge", S.minedge);
+  if (S.q) p.set("q", S.q);
+  if (S.only) p.set("only", S.only);
+  if (S.sort.key !== "edge" || S.sort.dir !== -1) p.set("sort", `${S.sort.key}:${S.sort.dir}`);
+  history.replaceState(null, "", p.toString() ? "#" + p.toString() : location.pathname);
+}
+function load() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  S.tour = p.get("tour") || "all"; S.status = p.get("status") || "all"; S.fresh = p.get("fresh") || "all";
+  S.minedge = +p.get("edge") || 0; S.q = (p.get("q") || "").toLowerCase(); S.only = p.get("only") || null;
+  const [k, dir] = (p.get("sort") || "edge:-1").split(":");
+  S.sort = { key: k, dir: +dir || -1 };
+  $("#minedge").value = S.minedge; $("#q").value = S.q;
+}
+
+for (const [id, key] of [["#tour", "tour"], ["#status", "status"], ["#fresh", "fresh"]]) {
+  $(id).addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    S[key] = b.dataset.v; save(); render();
+  });
+}
+$("#minedge").addEventListener("input", (e) => { S.minedge = Math.max(0, +e.target.value || 0); save(); render(); });
+$("#q").addEventListener("input", (e) => { S.q = e.target.value.trim().toLowerCase(); save(); render(); });
+for (const th of document.querySelectorAll("#tbl th.sortable")) {
+  th.addEventListener("click", () => {
+    const k = th.dataset.k;
+    S.sort = S.sort.key === k ? { key: k, dir: -S.sort.dir } : { key: k, dir: k === "start" || k === "fresh" ? 1 : -1 };
+    save(); render();
+  });
+}
+$("#tbl tbody").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr.m"); if (!tr) return;
+  const ev = tr.dataset.ev;
+  S.open.has(ev) ? S.open.delete(ev) : S.open.add(ev);
+  render();
+});
+window.addEventListener("hashchange", () => { load(); render(); });
+
+async function refresh() {
+  if (S.fetching) return;
+  S.fetching = true;
+  try {
+    const res = await fetch("/api/live", { cache: "no-store" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    S.data = body;
+    render();
+  } catch (err) {
+    $("#hdot").className = "dot bad";
+    $("#htext").textContent = `Can't load live data: ${err.message}. Retrying…`;
+  } finally {
+    S.fetching = false;
+  }
+}
+function schedule() {
+  clearInterval(S.timer);
+  S.timer = setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+setInterval(() => { if (S.data) renderHealth(S.data); }, 5000);   // keep "polled Ns ago" current
+load();
+refresh();
+schedule();
+</script>
+</body>
+</html>

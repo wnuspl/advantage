@@ -31,6 +31,19 @@ SETTLED = ("determined", "finalized", "settled")
 GIVE_UP_DAYS = 15        # Kalshi: a postponed match's market closes within two weeks
 
 
+# Columns added after live.db was first created: (table, column, type). CREATE TABLE IF NOT
+# EXISTS leaves an existing table alone, so these are added in place (additive only).
+ADDED_COLUMNS = (("snapshot", "p_sd", "REAL"),)
+
+
+def migrate(con: sqlite3.Connection) -> None:
+    for table, col, typ in ADDED_COLUMNS:
+        have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        if col not in have:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    con.commit()
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -69,6 +82,7 @@ class Recorder:
         if str(path) != ":memory:":
             self.con.execute("PRAGMA journal_mode = WAL")
         self.con.executescript(LIVE_SCHEMA.read_text(encoding="utf-8"))
+        migrate(self.con)
         self.con.execute("PRAGMA foreign_keys = ON")
 
     def close(self) -> None:
@@ -217,7 +231,7 @@ SNAP_COLS = ("poll_id", "event", "status", "skip", "p_market", "ask_a", "ask_b",
              "games_a", "games_b", "pts_a", "pts_b", "a_serving", "serve_a_won", "serve_a_played", "serve_b_won",
              "serve_b_played", "live_problem", "p_model", "p_raw", "in_play", "stale", "a_pid", "b_pid",
              "a_resolved", "b_resolved", "a_last_rated", "b_last_rated", "a_stale_days", "b_stale_days", "day",
-             "surface", "surface_from", "best_of", "best_of_from", "final", "edition_id")
+             "surface", "surface_from", "best_of", "best_of_from", "final", "edition_id", "p_sd")
 
 
 def _days(day: str, last: str | None) -> int | None:
@@ -241,4 +255,4 @@ def _snapshot_row(poll_id: int, s: MarketSnapshot) -> tuple:
             e.a.player_id, e.b.player_id, e.a.resolved or None, e.b.resolved or None, la, lb,
             _days(s.day, la), _days(s.day, lb), s.day or None,
             s.surface if priced else None, s.surface_from or None, s.best_of if priced else None,
-            s.best_of_from or None, s.final if priced else None, s.edition_id)
+            s.best_of_from or None, s.final if priced else None, s.edition_id, det.get("p_sd"))

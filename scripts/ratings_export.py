@@ -1,5 +1,5 @@
 """Export weekly rating standings for the ratings viewer (web/ratings.html, served by
-scripts/ratings_server.py).
+scripts/web_server.py).
 
     python scripts/ratings_export.py                          # run 790, weekly from 2010
     python scripts/ratings_export.py --since 2000-01-03 --top 1000

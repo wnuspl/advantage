@@ -1,4 +1,4 @@
-"""Push the ratings export to the server running scripts/ratings_server.py (the full replay
+"""Push the ratings export to the server running scripts/web_server.py (the full replay
 needs more memory than the server has, so the export runs here and only its files go up).
 
     python scripts/ratings_export.py && python scripts/ratings_push.py

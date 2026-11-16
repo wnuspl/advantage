@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "ratings",
+      "name": "web",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["scripts/ratings_server.py", "--quiet"],
+      "runtimeArgs": ["scripts/web_server.py", "--quiet"],
       "port": 8790
     }
   ]

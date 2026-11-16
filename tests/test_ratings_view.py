@@ -21,7 +21,7 @@ from tennis.engine import standings                                        # noq
 from test_predict import P790                                              # noqa: E402
 
 import ratings_export                                                      # noqa: E402
-import ratings_server                                                      # noqa: E402
+import web_server                                                      # noqa: E402
 
 PARAMS = pr.PointsParams(**{**P790.as_dict(), "score_weight": 1.5})
 CUTOFFS = standings.mondays("2020-01-01", "2020-02-01")   # fixture editions start 2020-01-06 and 2020-01-20
@@ -134,7 +134,7 @@ class ExportServerTest(unittest.TestCase):
                               min_matches=0, active_days=10**6, log=lambda s: None)   # replaces the first
         con.close()
         cls.dir = cls.out / f"run{cls.run_id}"
-        cls.srv = ratings_server.ThreadingHTTPServer(("127.0.0.1", 0), ratings_server.make_handler(cls.dir, quiet=True))
+        cls.srv = web_server.ThreadingHTTPServer(("127.0.0.1", 0), web_server.make_handler(cls.dir, quiet=True))
         cls.url = f"http://127.0.0.1:{cls.srv.server_address[1]}"
         cls.thread = threading.Thread(target=cls.srv.serve_forever, daemon=True)
         cls.thread.start()
@@ -165,7 +165,7 @@ class ExportServerTest(unittest.TestCase):
         self.assertEqual(set(wk["base"]), {"atp", "wta"})
 
     def test_server_routes(self):
-        with self.get("/") as r:
+        with self.get("/ratings") as r:
             self.assertIn(b"<table", r.read())
         with self.get("/data/index.json") as r:
             self.assertEqual(json.loads(r.read())["run_id"], self.run_id)
@@ -178,9 +178,9 @@ class ExportServerTest(unittest.TestCase):
             self.assertEqual(cm.exception.code, 404)
 
     def test_resolve_never_leaves_data_dir(self):
-        self.assertIsNone(ratings_server.resolve(self.dir, "/data/../../../CLAUDE.md"))
-        self.assertIsNone(ratings_server.resolve(self.dir, "/data/%2e%2e/x.json"))
-        self.assertIsNotNone(ratings_server.resolve(self.dir, "/data/index.json"))
+        self.assertIsNone(web_server.resolve(self.dir, "/data/../../../CLAUDE.md"))
+        self.assertIsNone(web_server.resolve(self.dir, "/data/%2e%2e/x.json"))
+        self.assertIsNotNone(web_server.resolve(self.dir, "/data/index.json"))
 
 
 if __name__ == "__main__":
