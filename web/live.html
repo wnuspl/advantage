@@ -390,11 +390,11 @@ function renderBets(rows) {
       <div class="nums">
         <span class="k" title="Win probability the bet is sized on: the model blended with the market by the model weight">Win prob</span>
         <span class="k" title="Cheapest price to buy this player winning (YES on him or NO on his opponent); a contract pays $1 if he wins">Ask</span>
-        <span class="k" title="Contracts to buy, each paying $1 if he wins">Buy</span>
+        <span class="k" title="Contracts to buy at their average price (each pays $1 if he wins; above the ask when the cheapest level runs out)">Buy</span>
         <span class="k" title="Total price of those contracts (deeper ones may fill a cent or two above the ask), plus Kalshi's fee">Cost</span>
         <span class="k" title="Expected profit after fees, at the win probability on the left">EV</span>
         <span class="v">${pct(dc.p_side)}</span><span class="v">${cents(dc.ask)}</span>
-        <span class="v">${dc.contracts} × $1</span>
+        <span class="v">${dc.contracts} @ ${Math.round(1000 * dc.cost / dc.contracts) / 10}¢</span>
         <span class="v">${money(dc.cost)}<span class="meta" style="font-weight:400"> + ${money(dc.fees)} fee</span></span>
         <span class="v">${money(dc.ev)}</span>
       </div>
