@@ -10,7 +10,8 @@ live_schema.sql).
 Settlement: `settlement_from()` reads GET /events/<ticker> (markets with `status`
 determined/finalized and `result` yes/no) plus the last live details (`match_status`,
 final set scores, mapped to A/B by competitor id). Nothing is settled until Kalshi has
-determined both markets.
+determined both markets. `record_final_form()` then asks the predictor for each serve
+stream's final in-match form on the settlement's final stats (table `final_form`).
 """
 from __future__ import annotations
 
@@ -21,8 +22,10 @@ import zlib
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from .. import kalshi
 from .decide import Decision, Policy
 from .live import MarketSnapshot, Pull
+from .predictor import MatchQuery
 
 ROOT = Path(__file__).resolve().parents[3]
 LIVE_DB = ROOT / "live.db"
@@ -224,6 +227,63 @@ class Recorder:
                 (ev["event"], seen_at or _now(), st["winner"], st["result_a"], st["result_b"], st["value_a"],
                  st["value_b"], st["market_status"], st["match_status"], st["final_score"], sha))
         return st
+
+    def last_query(self, event: str, live=None) -> MatchQuery | None:
+        """The MatchQuery the watch last priced `event` with, rebuilt from its latest priced
+        snapshot (players, day, surface, rules, edition), with `live` attached; None if the
+        match was never priced."""
+        r = self.con.execute(
+            """SELECT e.tour, s.a_pid, s.b_pid, s.day, s.surface, s.best_of, s.final, s.edition_id
+               FROM snapshot s JOIN event e USING (event)
+               WHERE s.event = ? AND s.skip = '' AND s.p_model IS NOT NULL AND s.a_pid IS NOT NULL
+                 AND s.b_pid IS NOT NULL AND s.day IS NOT NULL
+               ORDER BY s.poll_id DESC LIMIT 1""", (event,)).fetchone()
+        if r is None:
+            return None
+        return MatchQuery(tour=r["tour"], player_a=r["a_pid"], player_b=r["b_pid"], on=r["day"],
+                          surface=r["surface"], best_of=r["best_of"] or 3, final=r["final"] or "tb",
+                          edition_id=r["edition_id"], live=live)
+
+    def record_final_form(self, ev: dict, details: dict | None, predictor, now: str | None = None) -> dict | None:
+        """The model's final read of each serve stream: Predictor.predict on the match's last
+        query with the settlement's final Kalshi stats as `live`. Kept only when the predictor
+        reports stream form (detail form_a / form_b) and both servers played points (voids and
+        walkovers have none). Returns the stored row, or None."""
+        if not details:
+            return None
+        ls = kalshi.live_state(details, ev["a_comp"], ev["b_comp"])
+        if ls.problem == "competitor ids do not match the markets":
+            return None
+        if ls.serve_a[1] <= 0 or ls.serve_b[1] <= 0:
+            return None
+        q = self.last_query(ev["event"], ls)
+        if q is None:
+            return None
+        pr = predictor.predict(q)
+        d = pr.detail or {}
+        if "form_a" not in d or "form_b" not in d:
+            return None
+        row = {"event": ev["event"], "recorded_at": now or _now(), "model": pr.model, "form_var": d.get("form_var"),
+               "x_a": d.get("x_a"), "x_b": d.get("x_b"),
+               "serve_a_won": ls.serve_a[0], "serve_a_played": ls.serve_a[1],
+               "serve_b_won": ls.serve_b[0], "serve_b_played": ls.serve_b[1],
+               "form_a": d["form_a"], "form_b": d["form_b"],
+               "serve_a_form": d["serve_a_form"], "serve_b_form": d["serve_b_form"]}
+        with self.con:
+            self.con.execute(f"INSERT OR REPLACE INTO final_form ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
+                             tuple(row.values()))
+        return row
+
+    def missing_final_form(self) -> list[tuple[dict, dict | None]]:
+        """Settled events with no final_form row: (event row, final live details) pairs, for
+        a backfill after the fact (watch.py final-form)."""
+        out = []
+        for r in self.con.execute(
+                """SELECT e.*, t.raw_sha FROM settlement t JOIN event e USING (event)
+                   LEFT JOIN final_form f USING (event) WHERE f.event IS NULL ORDER BY t.seen_at""").fetchall():
+            blob = self.get_blob(r["raw_sha"]) or {}
+            out.append((dict(r), blob.get("live") if isinstance(blob, dict) else None))
+        return out
 
     # ---------------------------------------------------------------- queries
     def at(self, event: str, t: str) -> dict | None:

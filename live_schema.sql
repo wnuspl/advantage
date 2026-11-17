@@ -155,3 +155,20 @@ CREATE TABLE IF NOT EXISTS prematch (
   status   TEXT NOT NULL,                  -- the snapshot status it was taken at
   detail   TEXT NOT NULL                   -- JSON: recorder.PREMATCH_KEYS of Prediction.detail
 ) STRICT;
+
+-- The model's own conclusion on each serve stream when the match settled (added 2026-11-17):
+-- Predictor.predict on the settlement's final Kalshi stats (engine.predict stream_form).
+-- Stream A = A serving = A's serve vs B's return; stream B = B's serve vs A's return.
+-- form_* is the in-match shift of that stream's serve-point logit (shrunk: prior variance
+-- = rating variance + IN_PLAY_FORM_VAR); serve_*_form the serve-point probability after it.
+CREATE TABLE IF NOT EXISTS final_form (
+  event          TEXT PRIMARY KEY REFERENCES event(event),
+  recorded_at    TEXT NOT NULL,
+  model          TEXT NOT NULL,            -- Prediction.model
+  form_var       REAL,
+  x_a REAL, x_b REAL,                      -- pre-match serve logits the form was measured from
+  serve_a_won INTEGER NOT NULL, serve_a_played INTEGER NOT NULL,
+  serve_b_won INTEGER NOT NULL, serve_b_played INTEGER NOT NULL,
+  form_a REAL NOT NULL, form_b REAL NOT NULL,
+  serve_a_form REAL NOT NULL, serve_b_form REAL NOT NULL
+) STRICT;

@@ -6,6 +6,7 @@ Read-only against Kalshi: nothing here places orders.
     python scripts/watch.py test-alert                                     # send one test push
     python scripts/watch.py status                                         # what live.db holds
     python scripts/watch.py scorecard [--json]                             # model vs market on settled matches (B5)
+    python scripts/watch.py final-form                                     # backfill final_form for settled matches
     python scripts/watch.py at KXATPMATCH-26NOV16ALCTIA --time 2026-11-16T12:00:00Z
 
 Each poll: open events of every match series, milestone links (requested once per event),
@@ -77,6 +78,12 @@ def poll_once(rec: Recorder, wid: int, retr: Retriever, policy, series, ms_cache
             except Exception as e:                       # one bad lookup must not stop the watch
                 print(f"  settle {t['event']}: {type(e).__name__}: {e}")
                 continue
+            pred = getattr(retr, "predictor", None)
+            if st and pred is not None:
+                try:                                     # the model's final read of each serve stream
+                    rec.record_final_form(t, live.get(t["milestone"]), pred)
+                except Exception as e:                   # settlement already recorded; backfill: final-form
+                    print(f"  final form {t['event']}: {type(e).__name__}: {e}")
             if st:
                 w = t["a_name"] if st["winner"] == "a" else t["b_name"] if st["winner"] == "b" else "no winner"
                 settled.append(f"{t['title']}: {w} ({st['match_status'] or '?'}, {st['final_score'] or '?'})")
@@ -188,6 +195,27 @@ def card(args) -> int:
     return 0
 
 
+def final_form(args) -> int:
+    """Backfill final_form for settled matches without it (settled before it was recorded,
+    or while the lookup failed). Uses today's model: right only while its ratings do not
+    yet include these matches (tennis.db not rebuilt since)."""
+    rec = Recorder(args.db)
+    todo = rec.missing_final_form()
+    if not todo:
+        print("every settled match has its final form (or none can be recorded)")
+        rec.close()
+        return 0
+    today = datetime.now(timezone.utc).date().isoformat()
+    predictor = load_predictor("points", run=args.run, data_path=args.data, today=today)
+    n = 0
+    for ev, details in todo:
+        n += rec.record_final_form(ev, details, predictor) is not None
+    print(f"final form recorded for {n} of {len(todo)} settled matches without one "
+          "(the rest: no stats, never priced, or not a points model)")
+    rec.close()
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--db", type=Path, default=LIVE_DB)
@@ -230,6 +258,10 @@ def main(argv=None) -> int:
     c.add_argument("--ntfy-topic", help="default: NTFY_TOPIC from the environment or .env")
     c.add_argument("--ntfy-server", default=NTFY_SERVER)
     c.set_defaults(fn=card)
+    f = sub.add_parser("final-form", help="backfill each settled match's final in-match form (table final_form)")
+    f.add_argument("--run", type=int, default=790)
+    f.add_argument("--data", type=Path, default=ROOT / "tennis.db")
+    f.set_defaults(fn=final_form)
     args = ap.parse_args(argv)
     return args.fn(args)
 

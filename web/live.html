@@ -223,6 +223,11 @@ tr.s:hover, tr.s.open { background: var(--hover); }
 .kv > div { background: var(--bg); border-radius: 6px; padding: 7px 9px; }
 .kv .k { color: var(--muted); font-size: 11px; } .kv .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .drawer .dgrid { grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); }
+.nz { display: inline-block; font-size: 11px; font-weight: 650; border-radius: 4px; padding: 0 6px; margin-top: 2px; cursor: help; white-space: nowrap; }
+.nz.within { color: var(--muted); border: 1px solid var(--line); }
+.nz.above { color: var(--up); background: var(--accent-soft); }
+.nz.below { color: var(--down); background: var(--live-soft); }
+.rt.st td { white-space: nowrap; }
 footer { color: var(--muted); font-size: 12px; padding-top: 18px; }
 footer p { margin: 4px 0; }
 </style>
@@ -971,7 +976,7 @@ function drawChart(el, m) {
 
 function ratingsTable(m) {
   const r = m.pre.ratings;
-  if (!r) return `<div class="meta">No pre-match ratings recorded for this match: the watch records them from 17 Nov 2026 on, for matches priced with the points model.</div>`;
+  if (!r) return `<div class="meta" style="white-space:normal">No pre-match ratings recorded for this match: the watch records them from 17 Nov 2026 on, for matches priced with the points model.</div>`;
   // Ratings are logits and not centred (an average player is not 0): read them against the
   // tour's rated players of the past year (`ref`), when the predictor had a player index.
   const ref = r.ref;
@@ -1010,6 +1015,59 @@ function servePts(m) {
   return `<div class="kv">${one("a", m.a.name)}${one("b", m.b.name)}</div><div class="notes">As of ${esc(timeOf(last.as_of))}${m.status === "settled" ? " (the last poll with a live score)" : ""}.</div>`;
 }
 
+// "After the match" (settled matches): the settlement's final Kalshi stats against the
+// pre-match expected serve-point rates, a noise label per gap, the model's own final read
+// of each serve stream, and the other final stats as plain actuals.
+const NZ_LABEL = { within: "within noise", above: "clearly above", below: "clearly below" };
+function vsCell(c, z) {
+  if (!c) return "–";
+  const sd = 100 * c.sd, tip = `Gap ${signed(100 * c.gap, 1)} pts of rate (${signed(c.pts, 1)} points). `
+    + `Expected spread ±${sd.toFixed(1)} pts: binomial over ${c.played} points ±${(100 * c.sd_binom).toFixed(1)}, `
+    + `the rating's own uncertainty ±${(100 * c.sd_rating).toFixed(1)}, combined. `
+    + `Beyond ${z} SD (±${(z * sd).toFixed(1)} pts) counts as clearly above or below; inside it the gap is noise.`;
+  return `${c.won}/${c.played} · ${pct(c.rate)}<span class="sub">vs ${pct(c.expected)} expected · <span style="white-space:nowrap">${signed(c.pts, 0)} pts</span></span>`
+    + `<span class="nz ${c.label}" title="${esc(tip)}" tabindex="0">${NZ_LABEL[c.label]}</span>`;
+}
+function afterMatch(m) {
+  const x = m.after;
+  if (!x) return "";
+  const A = m.a.name, B = m.b.name, st = x.stats;
+  const head = `<colgroup><col class="lab"><col><col></colgroup><thead><tr><th></th><th>${esc(A)}</th><th>${esc(B)}</th></tr></thead>`;
+  const row = (label, a, b, title = "") => `<tr><th scope="row"${title ? ` title="${esc(title)}"` : ""}>${esc(label)}</th><td>${a}</td><td>${b}</td></tr>`;
+  const plain = (s) => `${s.serve_won}/${s.serve_played} · ${pct(s.serve_won / s.serve_played)}`;
+  const ret = (s, o) => `${o.serve_played - o.serve_won}/${o.serve_played} · ${pct(1 - o.serve_won / o.serve_played)}`;
+  let cmp;
+  if (x.serve) {
+    cmp = row("Serve points won", vsCell(x.serve.a, x.z), vsCell(x.serve.b, x.z), "Against the model's pre-match serve-point rate for this match (with the context offset)")
+        + row("Return points won", vsCell(x.ret.a, x.z), vsCell(x.ret.b, x.z), "Against 1 − the opponent's pre-match serve-point rate");
+  } else {
+    cmp = row("Serve points won", plain(st.a) + '<span class="sub">no pre-match expectation recorded</span>', plain(st.b) + '<span class="sub">no pre-match expectation recorded</span>')
+        + row("Return points won", ret(st.a, st.b), ret(st.b, st.a));
+  }
+  const f = x.form;
+  const fc = (s) => { const g = f[s]; return `${g.pre != null ? pct(g.pre, 1) + " → " : ""}${pct(g.rate, 1)}<span class="sub">form ${signed(g.form)} on the logit, ${g.won}/${g.played} pts</span>`; };
+  if (f) cmp += row("Model's final read", fc("a"), fc("b"), `The engine's in-match form on each serve stream at the end, from the final stats (${f.model}; form variance ${f.form_var ?? "?"}): the serve-point rate it would now give this server against this returner. Shrunk toward the pre-match rate, so it moves less than the raw rate.`);
+  const notes = [];
+  if (x.serve) notes.push(`One stream per server: ${esc(lastName(A))}'s serve points are ${esc(lastName(B))}'s return points, so a serve gap and the opponent's return gap are the same points seen from each side. The model can't tell a strong serve from a weak return.`);
+  if (!f) notes.push("No final model read recorded for this match (recorded at settlement from 17 Nov 2026).");
+  const fr = (a, b) => b ? `${a}/${b} · ${pct(a / b)}` : `${a}/${b}`;
+  const S = (k) => [st.a, st.b].map(k);
+  const other = [
+    ["First serve in", (s) => fr(s.first_in, s.serve_played)],
+    ["Won on 1st serve", (s) => fr(s.first_won, s.first_in)],
+    ["Won on 2nd serve", (s) => fr(s.second_won, s.second_played)],
+    ["Aces", (s) => s.aces], ["Double faults", (s) => s.double_faults],
+    ["Break points won", (s) => fr(s.bp_won, s.bp_total)],
+    ["Service games held", (s) => fr(s.service_games_won, s.service_games)],
+    ["Tiebreaks won", (s) => s.tiebreaks_won], ["Total points won", (s) => s.points_won],
+  ].map(([l, k]) => row(l, ...S(k))).join("");
+  return `<table class="rt">${head}<tbody>${cmp}</tbody></table>
+    ${notes.length ? `<div class="notes">${notes.join(" ")}</div>` : ""}
+    <h3 style="margin-top:14px">Other final stats</h3>
+    <table class="rt st">${head}<tbody>${other}</tbody></table>
+    <div class="notes">Kalshi's final stats as reported; the model has no expectation for these. Service games = held + the opponent's breaks.</div>`;
+}
+
 const PANEL_SECTIONS = [
   { id: "chart", title: (m) => `P(${lastName(m.a.name)} wins) over the match`,
     html: (m) => `<div class="chart"></div>
@@ -1033,6 +1091,7 @@ const PANEL_SECTIONS = [
         <div class="notes">${p.as_of ? `Last poll before the start, ${esc(dayClock(p.as_of))}.` : "No poll before the start was recorded."}</div>
         <div style="margin-top:10px">${ratingsTable(m)}</div>`;
     } },
+  { id: "after", title: "After the match", html: (m) => afterMatch(m) },
   { id: "inplay", title: "In play", html: (m) => servePts(m) },
   { id: "market", title: "Market and policy now", html: (m, row) => row ? `<div class="dgrid">${detailItems(derive(row)).map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div>` : "" },
   { id: "about", title: "Match", html: (m) => `<div class="notes" style="margin-top:0">${esc(m.event)} · scheduled ${m.start ? esc(dayClock(m.start)) : "?"} · ${m.started_at ? "first live poll " + esc(dayClock(m.started_at)) + " · " : ""}${m.polls.length} polls recorded. Breaks and set ends are read from the recorded score; when polls miss games only the breaks the game counts guarantee are shown.</div>` },

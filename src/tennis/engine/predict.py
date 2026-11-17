@@ -23,6 +23,10 @@ shrink). No calibration in play: the alphas are fitted on pre-match predictions.
 state with a `problem`, or no known server, gives the pre-match probability with
 in_play=False and the reason in notes: callers must not act on it as an in-play price.
 
+Any query.live (live or finished: a settled match's final stats) also puts each serve
+stream's in-match form in detail (`stream_form`: form_a / form_b, serve_a_form / serve_b_form,
+form_points_a / form_points_b); the recorder stores the final values at settlement.
+
 `detail["p_sd"]`: the SD of the output probability under the ratings' own variances
 (p_spread; in play, the form-updated variances), for display as the model's certainty;
 `p_sd_pre` keeps the pre-match one. `rating_a` / `rating_b`: each player's serve and return
@@ -302,6 +306,8 @@ class PointsPredictor:
         p_out, p_raw, in_play = d["p_prematch"], d["p_raw"], False
 
         live = q.live
+        if live is not None and self.live_form:
+            d.update(self.stream_form(d, live))
         if live is not None:
             status = getattr(live, "status", "live")
             problem = getattr(live, "problem", "") or ("" if getattr(live, "a_serving", None) is not None
@@ -314,8 +320,8 @@ class PointsPredictor:
             else:
                 xa, xb, va, vb = d["x_a"], d["x_b"], d["v_a"], d["v_b"]
                 if self.live_form:
-                    xa, va = points_rating.in_match_form(xa, va, *live.serve_a, self.form_var)
-                    xb, vb = points_rating.in_match_form(xb, vb, *live.serve_b, self.form_var)
+                    xa, va = d["x_a"] + d["form_a"], d["v_a_form"]
+                    xb, vb = d["x_b"] + d["form_b"], d["v_b_form"]
                 def f(a, b):
                     return points_rating.in_play_probability(
                         st, a, b, va, vb, q.best_of, q.final, live.score(), live.a_serving,
@@ -328,6 +334,21 @@ class PointsPredictor:
                 notes.append("in play: not calibrated")
         return Prediction(p_a=p_out, p_raw=p_raw, in_play=in_play, model=self.name, stale=stale,
                           notes=notes, detail=d)
+
+    def stream_form(self, d: dict, live) -> dict:
+        """Each serve stream's in-match form on the serve points in `live` (any status: a
+        finished match's final stats give the model's last word on the day). Stream A = A
+        serving = A's serve vs B's return; stream B likewise. form_* is the shift of that
+        stream's serve-point logit (points_rating.in_match_form, prior N(x, v + form_var)),
+        serve_*_form the serve-point probability after it; v_*_form the updated variance."""
+        out = {}
+        for s in ("a", "b"):
+            won, played = (int(v) for v in (getattr(live, "serve_" + s, None) or (0, 0)))
+            x, v = points_rating.in_match_form(d["x_" + s], d["v_" + s], won, played, self.form_var)
+            out.update({f"form_{s}": x - d["x_" + s], f"v_{s}_form": v, f"serve_{s}_form": _sig(x),
+                        f"form_points_{s}": [won, played]})
+        out["form_var"] = self.form_var
+        return out
 
     def set_scores(self, q: MatchQuery) -> dict:
         """Pre-match set-score distribution from the two serve-point probabilities (no

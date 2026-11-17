@@ -21,6 +21,7 @@ The view:
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 import zlib
@@ -308,11 +309,29 @@ MATCH_SNAP = ("status", "p_model", "p_market", "score", "sets_a", "sets_b", "gam
               "pts_b", "a_serving", "serve_a_won", "serve_a_played", "serve_b_won", "serve_b_played", "in_play")
 
 
+def _settled_live(con: sqlite3.Connection, st) -> dict | None:
+    """The final live details kept in the settlement's blob (None for old or bare rows)."""
+    if not st["raw_sha"]:
+        return None
+    b = con.execute("SELECT zlib FROM blob WHERE sha256 = ?", (st["raw_sha"],)).fetchone()
+    blob = json.loads(zlib.decompress(b[0]).decode("utf-8")) if b else None
+    return blob.get("live") if isinstance(blob, dict) else None
+
+
+def _final_form(con: sqlite3.Connection, event: str) -> dict | None:
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'final_form'").fetchone():
+        return None
+    r = con.execute("SELECT * FROM final_form WHERE event = ?", (event,)).fetchone()
+    return None if r is None else dict(r)
+
+
 def match_view(con: sqlite3.Connection, event: str, now: datetime | None = None) -> dict | None:
     """Everything the live page's match panel shows for one event, or None if live.db has
     never seen it: every poll that listed it (not thinned), the break / set-end marks, the
     pre-match block (each player's ratings going into the match as the predictor recorded
-    them, the last pre-match model and market) and the settlement, if any."""
+    them, the last pre-match model and market), the settlement, if any, and for a settled
+    match with final stats `after` (after_match: final stats vs the pre-match expectation, the
+    model's final read of each serve stream)."""
     now = now or datetime.now(timezone.utc)
     e = con.execute("SELECT * FROM event WHERE event = ?", (event,)).fetchone()
     if e is None:
@@ -337,6 +356,12 @@ def match_view(con: sqlite3.Connection, event: str, now: datetime | None = None)
         pre["ratings"] = {"model": pm["model"], "taken_at": pm["status"], **det}
         if pre["p_sd"] is None:
             pre["p_sd"] = det.get("p_sd_pre")
+    after = None
+    if st is not None:
+        after = after_match(_settled_live(con, st), e["a_comp"], e["b_comp"],
+                            json.loads(pm["detail"]) if pm is not None else None, _final_form(con, event))
+        if after is not None:
+            after = _round(after)
     marks = []
     if started is not None:
         marks = [{**m, "i": m["i"] + started}
@@ -347,7 +372,97 @@ def match_view(con: sqlite3.Connection, event: str, now: datetime | None = None)
             "last_seen": e["last_seen"], "a": {"name": e["a_name"]}, "b": {"name": e["b_name"]},
             "status": "settled" if st else (polls[-1]["status"] if polls else None),
             "started_at": None if started is None else polls[started]["as_of"],
-            "polls": polls, "marks": marks, "pre": pre,
+            "polls": polls, "marks": marks, "pre": pre, "after": after,
             "settlement": None if st is None else {
                 "winner": st["winner"], "final_score": st["final_score"], "match_status": st["match_status"],
                 "seen_at": st["seen_at"]}}
+
+
+# ---------------------------------------------------------------------------- after the match
+
+NOISE_Z = 2.0           # a gap beyond NOISE_Z SDs is "clearly" above / below expectation
+
+
+def _sig(x: float) -> float:
+    return 1 / (1 + math.exp(-x))
+
+
+def final_stats(details: dict | None, a_comp: str, b_comp: str) -> dict | None:
+    """Kalshi's final per-player statistics (Sportradar `competitor{1,2}_statistics`) mapped
+    to A / B by competitor id, never by order. None when the ids do not match the event or
+    nobody served a point (voids, walkovers)."""
+    d = details or {}
+    side = {d.get("competitor1_id"): "1", d.get("competitor2_id"): "2"}
+    if a_comp not in side or b_comp not in side or a_comp == b_comp:
+        return None
+    raw = {s: d.get(f"competitor{side[c]}_statistics") or {} for s, c in (("a", a_comp), ("b", b_comp))}
+    g = lambda s, k: int(raw[s].get(k) or 0)                         # noqa: E731
+    out = {}
+    for s, o in (("a", "b"), ("b", "a")):
+        won, lost = g(s, "service_points_won"), g(s, "service_points_lost")
+        n = won + lost
+        first_in = g(s, "first_serve_successful")
+        held, broken = g(s, "service_games_won"), g(o, "breakpoints_won")
+        out[s] = {"serve_won": won, "serve_played": n,
+                  "first_in": first_in, "first_won": g(s, "first_serve_points_won"),
+                  # second-serve points = serve points not started with a first serve in
+                  # (Kalshi's second_serve_successful does not count them consistently)
+                  "second_played": max(n - first_in, 0), "second_won": g(s, "second_serve_points_won"),
+                  "aces": g(s, "aces"), "double_faults": g(s, "double_faults"),
+                  "bp_won": g(s, "breakpoints_won"), "bp_total": g(s, "total_breakpoints"),
+                  "service_games": held + broken, "service_games_won": held,
+                  "tiebreaks_won": g(s, "tiebreaks_won"), "points_won": g(s, "points_won")}
+    if out["a"]["serve_played"] <= 0 or out["b"]["serve_played"] <= 0:
+        return None
+    return out
+
+
+def versus(won: int, n: int, expected: float, v: float | None, z: float = NOISE_Z) -> dict:
+    """Points won out of n against a pre-match expected rate. The spread of the gap combines
+    the binomial spread over n points, p(1-p)/n, and the rating's own uncertainty carried to
+    the rate by the delta method, (p(1-p))^2 v with v the serve-point logit's variance. The
+    label: 'above' / 'below' when the gap is beyond z SDs, else 'within' (noise)."""
+    p = expected
+    var_b = p * (1 - p) / n
+    var_r = (p * (1 - p)) ** 2 * v if v else 0.0
+    sd = math.sqrt(var_b + var_r)
+    rate = won / n
+    gap = rate - p
+    label = "above" if gap > z * sd else "below" if gap < -z * sd else "within"
+    return {"won": won, "played": n, "rate": rate, "expected": p, "gap": gap, "pts": won - n * p,
+            "sd": sd, "sd_binom": math.sqrt(var_b), "sd_rating": math.sqrt(var_r), "z": gap / sd if sd else None,
+            "label": label}
+
+
+def after_match(details: dict | None, a_comp: str, b_comp: str, pre: dict | None = None,
+                form: dict | None = None, z: float = NOISE_Z) -> dict | None:
+    """The match panel's "After the match" block from the settlement's final Kalshi stats.
+    pre: the prematch detail (serve_a / serve_b expected serve-point rates, v_a / v_b their
+    logit variances), or None (settled before prematch was recorded: actuals only).
+    form: the final_form row, or None. Serve and return of one stream are the same points:
+    A's return gap is minus B's serve gap, with the same spread."""
+    st = final_stats(details, a_comp, b_comp)
+    if st is None:
+        return None
+    out = {"stats": st, "serve": None, "ret": None, "form": None, "z": z}
+    exp = {}
+    if pre:
+        for s in ("a", "b"):
+            p = pre.get("serve_" + s)
+            if p is None and pre.get("x_" + s) is not None:
+                p = _sig(pre["x_" + s])
+            exp[s] = p
+    if exp and all(exp.get(s) is not None for s in ("a", "b")):
+        out["serve"], out["ret"] = {}, {}
+        for s, o in (("a", "b"), ("b", "a")):
+            out["serve"][s] = versus(st[s]["serve_won"], st[s]["serve_played"], exp[s], pre.get("v_" + s), z)
+            # s's return points = o's serve points s won
+            out["ret"][s] = versus(st[o]["serve_played"] - st[o]["serve_won"], st[o]["serve_played"],
+                                   1 - exp[o], pre.get("v_" + o), z)
+    if form:
+        out["form"] = {s: {"form": form["form_" + s], "rate": form[f"serve_{s}_form"],
+                           "pre": None if form.get("x_" + s) is None else _sig(form["x_" + s]),
+                           "won": form[f"serve_{s}_won"], "played": form[f"serve_{s}_played"]}
+                       for s in ("a", "b")}
+        out["form"]["model"], out["form"]["form_var"] = form["model"], form.get("form_var")
+    return out
