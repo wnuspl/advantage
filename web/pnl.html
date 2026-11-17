@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Paper P&amp;L</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e2dd;
+  --accent: #2f6f4f; --accent-soft: #e4efe8; --up: #2f7d46; --down: #b3412f; --hover: #f1f0eb;
+  --live: #c8372d; --live-soft: #fbe9e7; --warn: #a86b00; --warn-soft: #fbf1dc;
+  --mkt: #8a8a83; --model: #2f6f4f; --band: rgba(47,111,79,.18); --s2: #8a5a9e;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151614; --panel: #1d1f1c; --text: #e8e7e2; --muted: #9a9a92; --line: #30322e;
+    --accent: #7fc19b; --accent-soft: #24352b; --up: #7fc19b; --down: #e8846f; --hover: #252723;
+    --live: #f07a6e; --live-soft: #3a2220; --warn: #e3b25a; --warn-soft: #362c19;
+    --mkt: #8d8d86; --model: #7fc19b; --band: rgba(127,193,155,.22); --s2: #c49ad6;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151614; --panel: #1d1f1c; --text: #e8e7e2; --muted: #9a9a92; --line: #30322e;
+  --accent: #7fc19b; --accent-soft: #24352b; --up: #7fc19b; --down: #e8846f; --hover: #252723;
+  --live: #f07a6e; --live-soft: #3a2220; --warn: #e3b25a; --warn-soft: #362c19;
+  --mkt: #8d8d86; --model: #7fc19b; --band: rgba(127,193,155,.22); --s2: #c49ad6;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.page { max-width: 1400px; margin: 0 auto; padding: 0 16px 24px; }
+header { padding: 16px 0 6px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+h1 { font-size: 20px; margin: 0; font-weight: 650; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  font-weight: 650; margin: 22px 0 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+h3 { font-size: 14px; margin: 0 0 6px; font-weight: 650; }
+.meta { color: var(--muted); font-size: 12px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 0 4px; }
+.group { display: flex; align-items: center; gap: 6px; }
+.group > .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+button, input { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+button { cursor: pointer; }
+button:hover { background: var(--hover); }
+input[type=number] { width: 84px; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.empty { color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 10px; }
+.kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; margin-top: 8px; }
+.kv .v { font-size: 20px; font-weight: 680; font-variant-numeric: tabular-nums; line-height: 1.15; overflow-wrap: anywhere; }
+.kv .k { color: var(--muted); font-size: 12px; }
+.kv .s { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+td.r, th.r { text-align: right; }
+td.nw, td.r { white-space: nowrap; }
+.who b { font-weight: 650; } .who .vs { color: var(--muted); font-size: 12px; display: block; }
+.score { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.pos { color: var(--up); font-weight: 650; } .neg { color: var(--down); font-weight: 650; }
+.badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .04em; border-radius: 4px; padding: 1px 6px; }
+.badge.won { color: var(--up); background: var(--accent-soft); } .badge.lost { color: var(--down); background: var(--live-soft); }
+.badge.live { color: var(--live); background: var(--live-soft); }
+svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
+svg.chart .grid { stroke: var(--line); stroke-width: 1; }
+svg.chart .base { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+svg.chart .ax { fill: var(--muted); font-size: 11px; }
+svg.chart .l0 { stroke: var(--model); fill: none; stroke-width: 2; stroke-linejoin: round; }
+svg.chart .l1 { stroke: var(--s2); fill: none; stroke-width: 2; stroke-linejoin: round; stroke-dasharray: 5 3; }
+svg.chart .d0 { fill: var(--model); stroke: var(--panel); stroke-width: 2; }
+svg.chart .d1 { fill: var(--s2); stroke: var(--panel); stroke-width: 2; }
+svg.chart .lab { font-size: 11px; fill: var(--text); }
+svg.chart .cross { stroke: var(--muted); stroke-width: 1; }
+.chartbox { position: relative; }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12); white-space: nowrap; z-index: 5; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+footer { color: var(--muted); font-size: 12px; padding-top: 18px; }
+footer p { margin: 4px 0; }
+.show-s { display: none !important; }
+@media (max-width: 640px) {
+  .hide-s { display: none; }
+  .show-s { display: block !important; }
+  .kv { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  th, td { padding: 6px 6px; }
+}
+</style>
+</head>
+<body>
+<script src="/nav.js"></script>
+<div class="page">
+<header>
+  <h1>Paper P&amp;L</h1>
+  <span class="meta" id="status">Loading…</span>
+</header>
+<form class="controls" id="sizing">
+  <div class="group"><span class="lbl">Bankroll</span><span class="meta">$</span><input type="number" id="bankroll" min="1" step="10" placeholder="1000" aria-label="Bankroll in dollars"></div>
+  <div class="group"><span class="lbl" title="Fraction of the Kelly stake (1 = full Kelly); blank = each watch's own">Kelly</span><input type="number" id="kelly" min="0.01" max="1" step="0.05" placeholder="watch's" aria-label="Kelly fraction"></div>
+  <button type="submit">Replay</button>
+  <span class="meta" id="sizenote"></span>
+</form>
+<div id="body"></div>
+<footer>
+  <p>Replays the watch's recorded order books (live.db) with the same decision code the watch runs, and follows each settled match's <b>first</b> flagged bet to settlement ($1 per contract if the side won; cost includes Kalshi fees). Nothing is placed: these are paper trades. Two policies: the one each watch was running when the bet was flagged, and the newest watch's throughout. The bankroll here only sizes the bets (each bet is sized on the same bankroll, not compounded); the curve adds up their P&amp;L in settlement order.</p>
+  <p>± is one standard error across bets (ROI: ratio estimator; hit rate: binomial). "Luck alone" is the spread of the P&amp;L if the policy's own win probabilities were exactly right: an actual P&amp;L inside expected ± 2× that tells you nothing yet.</p>
+  <p>Sell rules: the newest policy's entries, then at every later poll the cheapest exit (sell the held contracts, or buy the other side), worth 1 − price − fee per contract. Same numbers as <code>scripts/paper_replay.py pnl</code> and <code>sell</code>.</p>
+</footer>
+</div>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (x) => x == null ? "–" : (x < 0 ? "−$" : "$") + Math.abs(x).toFixed(2);
+const smoney = (x) => x == null ? "–" : (x > 0 ? "+" : x < 0 ? "−" : "") + "$" + Math.abs(x).toFixed(2);
+const pct = (x, d = 1) => x == null ? "–" : (100 * x).toFixed(d) + "%";
+const spct = (x, d = 1) => x == null ? "–" : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(100 * x).toFixed(d) + "%";
+const cls = (x) => x > 0 ? "pos" : x < 0 ? "neg" : "";
+const day = (t) => t ? t.slice(5, 16).replace("T", " ") : "";
+const S = { bankroll: null, kelly: null, variant: 0, data: null };
+const SHORT = ["Each watch's policy", "Newest watch's policy"];
+const CW = () => innerWidth < 640 ? [440, 112] : [900, 140];   // chart coordinate width, right label gutter
+
+function readHash() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  const b = parseFloat(h.get("bankroll")), k = parseFloat(h.get("kelly"));
+  S.bankroll = b >= 1 ? b : null;
+  S.kelly = k > 0 && k <= 1 ? k : null;
+  S.variant = h.get("v") === "1" ? 1 : 0;
+  $("#bankroll").value = S.bankroll ?? "";
+  $("#kelly").value = S.kelly ?? "";
+}
+function writeHash() {
+  const h = new URLSearchParams();
+  if (S.bankroll != null) h.set("bankroll", S.bankroll);
+  if (S.kelly != null) h.set("kelly", S.kelly);
+  if (S.variant) h.set("v", "1");
+  history.replaceState(null, "", h.toString() ? "#" + h : location.pathname);
+}
+
+function kpiCard(v, i) {
+  const a = v.stats.all;
+  const sub = ["pre", "in play"].filter((k) => v.stats[k].n).map((k) => {
+    const t = v.stats[k];
+    return `${k}: ${t.n} bets, ${smoney(t.pnl)} (${spct(t.roi)})`;
+  }).join(" · ");
+  return `<div class="card"><h3><span class="sw" style="background:var(${i ? "--s2" : "--model"})"></span>${SHORT[i]}</h3>
+    <div class="meta">${esc(v.name)}</div>
+    <div class="kv">
+      <div><div class="k">P&amp;L</div><div class="v ${cls(a.pnl)}">${smoney(a.pnl)}</div><div class="s">staked ${money(a.cost)}</div></div>
+      <div><div class="k">ROI</div><div class="v ${cls(a.roi)}">${spct(a.roi)}</div><div class="s">± ${pct(a.roi_se)}</div></div>
+      <div><div class="k">Hit rate</div><div class="v">${a.n ? `${a.won}/${a.n}` : "–"}</div><div class="s">${pct(a.hit, 0)} ± ${pct(a.hit_se, 0)}</div></div>
+      <div><div class="k">Expected</div><div class="v">${smoney(a.ev)}</div><div class="s">by the policy's own p</div></div>
+      <div><div class="k">Luck alone</div><div class="v">± ${money(a.pnl_sd_model)}</div><div class="s">1 SD of P&amp;L</div></div>
+      <div><div class="k">Bets</div><div class="v">${a.n}</div><div class="s">one per settled match</div></div>
+    </div>${sub ? `<div class="meta" style="margin-top:8px">${sub}</div>` : ""}</div>`;
+}
+
+// Bankroll after each settled bet, both policies on one time axis (step lines).
+function bankChart(vs, start) {
+  const series = vs.map((v) => v.curve.filter((p) => p.t).map((p) => ({ t: Date.parse(p.t), b: p.bankroll, ev: p.event })));
+  const all = series.flat();
+  if (!all.length) return `<div class="empty">No settled bets yet.</div>`;
+  const [W, R] = CW(), H = 260, L = 64, T = 12, B = 26;
+  let t0 = Math.min(...all.map((p) => p.t)), t1 = Math.max(...all.map((p) => p.t));
+  if (t1 === t0) { t0 -= 3600e3; t1 += 3600e3; }
+  t0 -= (t1 - t0) * 0.03;
+  let lo = Math.min(start, ...all.map((p) => p.b)), hi = Math.max(start, ...all.map((p) => p.b));
+  const pad = (hi - lo) * 0.1 || Math.max(1, start * 0.01); lo -= pad; hi += pad;
+  const x = (t) => L + (t - t0) * (W - L - R) / (t1 - t0);
+  const y = (v) => T + (hi - v) * (H - T - B) / (hi - lo);
+  let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Bankroll after each settled bet">`;
+  for (const v of ticks(lo, hi, 5)) s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${money(v).replace(".00", "")}</text>`;
+  s += `<line class="base" x1="${L}" x2="${W - R}" y1="${y(start)}" y2="${y(start)}"/>`;
+  s += `<text class="ax" x="${L}" y="${H - 6}">${esc(day(new Date(t0).toISOString()))}</text><text class="ax" x="${W - R}" y="${H - 6}" text-anchor="end">${esc(day(new Date(t1).toISOString()))} UTC</text>`;
+  const labels = [];
+  series.forEach((pts, i) => {
+    if (!pts.length) return;
+    let d = `M${x(t0)},${y(start)}`, prev = start;
+    for (const p of pts) { d += `L${x(p.t)},${y(prev)}L${x(p.t)},${y(p.b)}`; prev = p.b; }
+    d += `L${W - R},${y(prev)}`;
+    s += `<path class="l${i}" d="${d}"/>`;
+    for (const p of pts) s += `<circle class="d${i}" cx="${x(p.t)}" cy="${y(p.b)}" r="${pts.length > 60 ? 2.5 : 4}"/>`;
+    labels.push({ i, y: y(prev), b: prev });
+  });
+  labels.sort((a, b) => a.y - b.y);
+  for (let j = 1; j < labels.length; j++) if (labels[j].y - labels[j - 1].y < 14) labels[j].y = labels[j - 1].y + 14;
+  for (const lb of labels) s += `<text class="lab" x="${W - R + 6}" y="${lb.y + 4}">${SHORT[lb.i].replace(" policy", "").replace(" watch's", "")}: ${money(lb.b)}</text>`;
+  s += `<line class="cross" id="bk-x" y1="${T}" y2="${H - B}" visibility="hidden"/></svg>`;
+  return `<div class="chartbox" id="bk">${s}<div class="tip" hidden></div></div>
+    <div class="legend"><span><span class="sw" style="background:var(--model)"></span>${SHORT[0]}</span><span><span class="sw" style="background:var(--s2)"></span>${SHORT[1]} (dashed)</span><span>dashed grey: starting bankroll ${money(start)}</span></div>`;
+}
+
+function hookBank(vs, start) {
+  const box = $("#bk"); if (!box) return;
+  const svg = box.querySelector("svg"), tip = box.querySelector(".tip"), cross = $("#bk-x");
+  const [W, R] = CW(), L = 64;
+  const all = vs.map((v) => v.curve.filter((p) => p.t).map((p) => Date.parse(p.t))).flat();
+  let t0 = Math.min(...all), t1 = Math.max(...all);
+  if (t1 === t0) { t0 -= 3600e3; t1 += 3600e3; }
+  t0 -= (t1 - t0) * 0.03;
+  const bets = vs.map((v) => new Map(v.bets.map((b) => [b.event, b])));
+  svg.addEventListener("pointermove", (ev) => {
+    const r = svg.getBoundingClientRect();
+    const vx = (ev.clientX - r.left) * W / r.width;
+    const t = t0 + (vx - L) * (t1 - t0) / (W - L - R);
+    let best = null;
+    vs.forEach((v, i) => v.curve.forEach((p) => { if (p.t) { const dt = Math.abs(Date.parse(p.t) - t); if (!best || dt < best.dt) best = { dt, p, i }; } }));
+    if (!best) return;
+    const cx = L + (Date.parse(best.p.t) - t0) * (W - L - R) / (t1 - t0);
+    cross.setAttribute("x1", cx); cross.setAttribute("x2", cx); cross.setAttribute("visibility", "visible");
+    const lines = vs.map((v, i) => {
+      const upto = v.curve.filter((p) => p.t && p.t <= best.p.t);
+      return `<span class="sw" style="background:var(${i ? "--s2" : "--model"})"></span>${SHORT[i]}: ${money(upto.length ? upto[upto.length - 1].bankroll : start)}`;
+    });
+    const b = bets[best.i].get(best.p.event);
+    tip.innerHTML = `<b>${esc(day(best.p.t))} UTC</b><br>${lines.join("<br>")}${b ? `<br>${esc(b.name)} ${b.won ? "won" : "lost"} ${smoney(b.pnl)}` : ""}`;
+    tip.hidden = false;
+    const px = cx * r.width / W;
+    tip.style.left = Math.min(Math.max(0, px - tip.offsetWidth / 2), r.width - tip.offsetWidth) + "px";
+    tip.style.top = "-6px"; tip.style.transform = "translateY(-100%)";
+  });
+  svg.addEventListener("pointerleave", () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); });
+}
+
+function ticks(a, b, k) {
+  const span = b - a, step0 = span / k, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= k) || mag * 10;
+  const out = [];
+  for (let t = Math.ceil(a / step) * step; t <= b + 1e-9; t += step) out.push(t);
+  return out;
+}
+
+function betTable(v) {
+  if (!v.bets.length) return `<div class="empty">No settled bets under this policy.</div>`;
+  const rows = v.bets.slice().reverse().map((b) => `<tr>
+    <td class="nw hide-s">${esc(day(b.settled_at))}<div class="meta">bet ${esc(day(b.as_of))}${b.phase === "in play" ? ' <span class="badge live">LIVE</span>' : ""}</div></td>
+    <td class="who"><b>${esc(b.name)}</b><span class="vs">vs ${esc(b.opp)} · ${esc(b.tour)}</span><span class="vs show-s">settled ${esc(day(b.settled_at))}${b.phase === "in play" ? " · bet in play" : ""}</span>${b.final_score ? `<span class="score">${esc(b.final_score)}</span>` : ""}</td>
+    <td class="r nw">${b.ask.toFixed(2)}<div class="meta">p ${b.p_side.toFixed(2)}</div></td>
+    <td class="r hide-s">${b.n}</td>
+    <td class="r nw">${money(b.cost)}<div class="meta hide-s">ev ${smoney(b.ev)}</div></td>
+    <td class="r nw"><span class="${cls(b.pnl)}">${smoney(b.pnl)}</span><div><span class="badge ${b.won ? "won" : "lost"}">${b.won ? "WON" : "LOST"}</span></div></td></tr>`).join("");
+  return `<div class="wrap"><table><thead><tr><th class="hide-s">Settled</th><th>Bet on</th><th class="r">Price</th><th class="r hide-s">Contracts</th>
+    <th class="r">Cost</th><th class="r">Result</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function sellTable(s) {
+  if (!s || !s.entries) return `<div class="empty">No settled entries under the newest policy yet.</div>`;
+  const rows = s.rules.map((r) => `<tr><td>${esc(r.rule)}</td><td class="r ${cls(r.pnl)}">${smoney(r.pnl)}</td>
+    <td class="r ${r.rule === "hold" ? "" : cls(r.vs_hold)}">${r.rule === "hold" ? "–" : smoney(r.vs_hold)}</td>
+    <td class="r hide-s">${spct(r.roi)}</td><td class="r">${r.sold_in}</td></tr>`).join("");
+  return `<div class="wrap"><table><thead><tr><th>Rule</th><th class="r">P&amp;L</th><th class="r">vs hold</th><th class="r hide-s">ROI</th><th class="r">Sold in</th></tr></thead>
+    <tbody>${rows}</tbody></table></div><div class="meta" style="margin-top:6px">${s.entries} settled entries, ${money(s.cost)} staked. "Model" sells while the exit is worth more than the blended win probability (plus 2 points); take profit sells at +15c a contract over the price paid, stop at −15c.</div>`;
+}
+
+function render() {
+  const d = S.data;
+  const np = d.policies ? d.policies.newest : null;
+  $("#sizenote").textContent = np ? `Replayed at $${d.bankroll}, Kelly ${d.kelly ?? "each watch's"}; newest watch: model weight ${np.model_weight}, in-play bets ${np.in_play ? "on" : "off"}.` : "";
+  if (!d.variants.length) { $("#body").innerHTML = `<div class="empty">No watch has run on this live.db yet.</div>`; return; }
+  let h = `<h2>Totals · ${d.settled} settled matches · ${d.unsettled_flagged} flagged not settled yet</h2><div class="kpis">${d.variants.map(kpiCard).join("")}</div>`;
+  h += `<h2>Bankroll</h2><div class="card">${bankChart(d.variants, d.bankroll)}</div>`;
+  h += `<h2>Bets <span class="seg" id="vsel">${SHORT.map((n, i) => `<button type="button" data-v="${i}" aria-pressed="${i === S.variant}">${n}</button>`).join("")}</span></h2>${betTable(d.variants[S.variant])}`;
+  h += `<h2>Sell rules (newest watch's policy)</h2>${sellTable(d.sell)}`;
+  $("#body").innerHTML = h;
+  hookBank(d.variants, d.bankroll);
+  $("#vsel").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    S.variant = +b.dataset.v; writeHash(); render();
+  });
+}
+
+let timer = null;
+async function load() {
+  clearTimeout(timer);
+  const q = new URLSearchParams();
+  if (S.bankroll != null) q.set("bankroll", S.bankroll);
+  if (S.kelly != null) q.set("kelly", S.kelly);
+  try {
+    const r = await fetch("/api/pnl" + (q.toString() ? "?" + q : ""), { cache: "no-store" });
+    const j = await r.json();
+    if (r.status === 202) { $("#status").textContent = "Replaying the recorded order books… (can take a minute on a big live.db)"; timer = setTimeout(load, (j.retry_s || 3) * 1000); return; }
+    if (!r.ok) throw new Error(j.error || r.status);
+    S.data = j.data;
+    $("#status").textContent = `Replayed ${day(j.computed_at)} UTC in ${j.seconds} s${j.refreshing ? " · refreshing" : ""}${j.error ? " · last refresh failed: " + j.error : ""}`;
+    render();
+    timer = setTimeout(load, j.refreshing ? 5000 : 120000);
+  } catch (e) {
+    $("#status").textContent = "Unavailable: " + e.message;
+    timer = setTimeout(load, 20000);
+  }
+}
+$("#sizing").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const b = parseFloat($("#bankroll").value), k = parseFloat($("#kelly").value);
+  S.bankroll = b >= 1 ? b : null;
+  S.kelly = k > 0 && k <= 1 ? k : null;
+  writeHash(); load();
+});
+window.addEventListener("hashchange", () => { readHash(); load(); });
+let lastCW = CW()[0];
+window.addEventListener("resize", () => { if (CW()[0] !== lastCW && S.data) { lastCW = CW()[0]; render(); } });
+readHash();
+load();
+</script>
+</body>
+</html>

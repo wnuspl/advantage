@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Scorecard</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e2dd;
+  --accent: #2f6f4f; --accent-soft: #e4efe8; --up: #2f7d46; --down: #b3412f; --hover: #f1f0eb;
+  --live: #c8372d; --live-soft: #fbe9e7; --warn: #a86b00; --warn-soft: #fbf1dc;
+  --mkt: #8a8a83; --model: #2f6f4f; --band: rgba(47,111,79,.18);
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151614; --panel: #1d1f1c; --text: #e8e7e2; --muted: #9a9a92; --line: #30322e;
+    --accent: #7fc19b; --accent-soft: #24352b; --up: #7fc19b; --down: #e8846f; --hover: #252723;
+    --live: #f07a6e; --live-soft: #3a2220; --warn: #e3b25a; --warn-soft: #362c19;
+    --mkt: #8d8d86; --model: #7fc19b; --band: rgba(127,193,155,.22);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151614; --panel: #1d1f1c; --text: #e8e7e2; --muted: #9a9a92; --line: #30322e;
+  --accent: #7fc19b; --accent-soft: #24352b; --up: #7fc19b; --down: #e8846f; --hover: #252723;
+  --live: #f07a6e; --live-soft: #3a2220; --warn: #e3b25a; --warn-soft: #362c19;
+  --mkt: #8d8d86; --model: #7fc19b; --band: rgba(127,193,155,.22);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.page { max-width: 1400px; margin: 0 auto; padding: 0 16px 24px; }
+header { padding: 16px 0 6px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+h1 { font-size: 20px; margin: 0; font-weight: 650; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  font-weight: 650; margin: 22px 0 8px; }
+h3 { font-size: 14px; margin: 0 0 6px; font-weight: 650; }
+.meta { color: var(--muted); font-size: 12px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 0 4px; }
+.group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.group > .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; cursor: pointer; }
+button:hover { background: var(--hover); }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.mwnote { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 10px 14px; margin: 10px 0; }
+.mwnote.warn { border-left-color: var(--warn); }
+.mwnote b { font-weight: 650; }
+.empty { color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 10px; }
+.wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+td.r, th.r { text-align: right; }
+.good { color: var(--up); font-weight: 650; } .bad { color: var(--down); font-weight: 650; } .flat { color: var(--muted); }
+.pm { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.verdict { font-size: 12px; color: var(--muted); font-weight: 400; }
+svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
+svg.chart .grid { stroke: var(--line); stroke-width: 1; }
+svg.chart .zero { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+svg.chart .ax { fill: var(--muted); font-size: 11px; }
+svg.chart .line { stroke: var(--model); fill: none; stroke-width: 2; stroke-linejoin: round; }
+svg.chart .band { fill: var(--band); }
+svg.chart .dot { fill: var(--model); stroke: var(--panel); stroke-width: 2; }
+svg.chart .bar { fill: var(--model); }
+svg.chart .bar.neg { fill: var(--mkt); }
+svg.chart .val { fill: var(--text); font-size: 11px; }
+svg.chart .cross { stroke: var(--muted); stroke-width: 1; }
+.chartbox { position: relative; }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12); white-space: nowrap; z-index: 5; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.legend i { display: inline-block; width: 14px; height: 8px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+footer { color: var(--muted); font-size: 12px; padding-top: 18px; }
+@media (max-width: 560px) { .hide-s { display: none; } th, td { padding: 6px 6px; } }
+footer p { margin: 4px 0; }
+</style>
+</head>
+<body>
+<script src="/nav.js"></script>
+<div class="page">
+<header>
+  <h1>Scorecard</h1>
+  <span class="meta" id="status">Loading…</span>
+</header>
+<div id="mw"></div>
+<div class="controls">
+  <div class="group"><span class="lbl">Tour</span><div class="seg" id="tours"></div></div>
+</div>
+<div id="cards"></div>
+<footer>
+  <p>Log loss on settled matches recorded by the watch (live.db), model against the Kalshi market mid. <b>Difference = model − market</b>: negative means the model priced the winner better. Pre-match uses the last priced poll before the match went live; in play averages every live poll per match, so each match counts once. ± is one standard error across matches.</p>
+  <p>Running chart: the difference over all settled matches so far, in settlement order, with a ±2 SE band. A model lead that holds keeps the line below zero as the band narrows.</p>
+  <p>Feed lag: correlation of the model's move (driven only by the score feed) with the market's move k polls later. A peak at k &lt; 0 means the market moved before the feed showed the point. Same numbers as <code>scripts/watch.py scorecard</code>.</p>
+</footer>
+</div>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const f = (x, d = 3) => x == null ? "–" : x.toFixed(d);
+const sg = (x, d = 3) => x == null ? "–" : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d);
+const day = (t) => t ? t.slice(5, 16).replace("T", " ") : "";
+const S = { tour: "all", data: null };
+const CW = () => innerWidth < 560 ? 380 : 560;      // chart coordinate width: bigger text on phones
+
+function readHash() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  S.tour = h.get("tour") || "all";
+}
+function writeHash() {
+  const h = new URLSearchParams();
+  if (S.tour !== "all") h.set("tour", S.tour);
+  history.replaceState(null, "", h.toString() ? "#" + h : location.pathname);
+}
+
+function verdict(p) {
+  if (!p || p.n === 0 || p.d == null) return ["flat", "no matches"];
+  if (p.se == null) return ["flat", "one match: no SE yet"];
+  const z = p.d / p.se;
+  if (z <= -2) return ["good", "model clearly ahead"];
+  if (z >= 2) return ["bad", "market clearly ahead"];
+  return [p.d < 0 ? "good" : "bad", (p.d < 0 ? "model ahead" : "market ahead") + ", within 2 SE"];
+}
+
+function cardTable(c) {
+  const row = (name, p) => {
+    const [cls, v] = verdict(p);
+    return `<tr><td>${name}</td><td class="r">${p.n}</td><td class="r hide-s">${f(p.model, 4)}</td><td class="r hide-s">${f(p.market, 4)}</td>
+      <td class="r"><span class="${p.n ? cls : "flat"}">${sg(p.d, 4)}</span> <span class="pm">± ${f(p.se, 4)}</span><div class="verdict">${v}</div></td></tr>`;
+  };
+  return `<div class="wrap"><table><thead><tr><th></th><th class="r">Matches</th><th class="r hide-s">Model</th><th class="r hide-s">Market</th>
+    <th class="r">Model − market</th></tr></thead><tbody>${row("Pre-match", c.pre_match)}${row("In play", c.in_play)}</tbody></table></div>`;
+}
+
+// A line over match index with a ±2 SE band and a zero line; hover shows the match.
+function runChart(pts, id) {
+  if (!pts.length) return `<div class="empty">No settled matches priced in this phase yet.</div>`;
+  const W = CW(), H = 220, L = 54, R = 12, T = 10, B = 26;
+  const lo = pts.map((p) => p.se == null ? p.d : p.d - 2 * p.se), hi = pts.map((p) => p.se == null ? p.d : p.d + 2 * p.se);
+  let ymin = Math.min(0, ...lo), ymax = Math.max(0, ...hi);
+  const pad = (ymax - ymin) * 0.08 || 0.05; ymin -= pad; ymax += pad;
+  const n = pts.length;
+  const x = (i) => L + (n === 1 ? (W - L - R) / 2 : i * (W - L - R) / (n - 1));
+  const y = (v) => T + (ymax - v) * (H - T - B) / (ymax - ymin);
+  const ticks = niceTicks(ymin, ymax, 5);
+  let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Running model minus market log loss">`;
+  for (const t of ticks) s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/><text class="ax" x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${sg(t, 2)}</text>`;
+  s += `<line class="zero" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/>`;
+  const band = pts.map((p, i) => [i, p]).filter(([, p]) => p.se != null);
+  if (band.length > 1) s += `<path class="band" d="M${band.map(([i, p]) => `${x(i)},${y(p.d + 2 * p.se)}`).join("L")}L${band.slice().reverse().map(([i, p]) => `${x(i)},${y(p.d - 2 * p.se)}`).join("L")}Z"/>`;
+  s += `<path class="line" d="M${pts.map((p, i) => `${x(i)},${y(p.d)}`).join("L")}"/>`;
+  const last = pts[n - 1];
+  s += `<circle class="dot" cx="${x(n - 1)}" cy="${y(last.d)}" r="4"/>`;
+  s += `<text class="ax" x="${L}" y="${H - 6}">match 1</text><text class="ax" x="${W - R}" y="${H - 6}" text-anchor="end">match ${n}</text>`;
+  s += `<line class="cross" id="${id}-x" y1="${T}" y2="${H - B}" visibility="hidden"/><rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="${id}-hit"/></svg>`;
+  return `<div class="chartbox" id="${id}">${s}<div class="tip" hidden></div></div>`;
+}
+
+function hookRun(id, pts) {
+  const box = document.getElementById(id);
+  if (!box) return;
+  const svg = box.querySelector("svg"), tip = box.querySelector(".tip"), cross = document.getElementById(id + "-x");
+  const W = CW(), L = 54, R = 12, n = pts.length;
+  const move = (ev) => {
+    const r = svg.getBoundingClientRect();
+    const vx = (ev.clientX - r.left) * W / r.width;
+    const i = n === 1 ? 0 : Math.max(0, Math.min(n - 1, Math.round((vx - L) * (n - 1) / (W - L - R))));
+    const p = pts[i], cx = n === 1 ? L + (W - L - R) / 2 : L + i * (W - L - R) / (n - 1);
+    cross.setAttribute("x1", cx); cross.setAttribute("x2", cx); cross.setAttribute("visibility", "visible");
+    tip.innerHTML = `<b>After ${p.n} match${p.n > 1 ? "es" : ""}</b>: ${sg(p.d)} ± ${f(p.se)}<br>${esc(p.event)}<br>this match ${sg(p.this)} · settled ${esc(day(p.t))}`;
+    tip.hidden = false;
+    const px = cx * r.width / W;
+    tip.style.left = Math.min(Math.max(0, px - tip.offsetWidth / 2), r.width - tip.offsetWidth) + "px";
+    tip.style.top = "-6px"; tip.style.transform = "translateY(-100%)";
+  };
+  svg.addEventListener("pointermove", move);
+  svg.addEventListener("pointerleave", () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); });
+}
+
+function niceTicks(a, b, k) {
+  const span = b - a, step0 = span / k, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= k) || mag * 10;
+  const out = [];
+  for (let t = Math.ceil(a / step) * step; t <= b + 1e-12; t += step) out.push(Math.abs(t) < 1e-12 ? 0 : t);
+  return out;
+}
+
+function lagChart(lag) {
+  const ks = lag.corr.filter(([, v]) => v != null);
+  if (!ks.length) return `<div class="empty">No consecutive live polls yet.</div>`;
+  const W = 360, H = 170, L = 34, R = 8, T = 16, B = 24;
+  const y = (v) => T + (1 - v) * (H - T - B) / 2;   // -1 .. 1
+  const bw = (W - L - R) / lag.corr.length;
+  let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Feed lag correlation by poll offset">`;
+  for (const t of [-1, -0.5, 0, 0.5, 1]) s += `<line class="${t === 0 ? "zero" : "grid"}" x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/><text class="ax" x="${L - 5}" y="${y(t) + 4}" text-anchor="end">${t}</text>`;
+  lag.corr.forEach(([k, v], i) => {
+    const cx = L + i * bw + bw / 2;
+    s += `<text class="ax" x="${cx}" y="${H - 6}" text-anchor="middle">k=${k > 0 ? "+" : ""}${k}</text>`;
+    if (v == null) return;
+    const y0 = y(0), y1 = y(v), w = Math.min(36, bw * 0.55);
+    s += `<rect class="bar${v < 0 ? " neg" : ""}" x="${cx - w / 2}" y="${Math.min(y0, y1)}" width="${w}" height="${Math.max(1, Math.abs(y1 - y0))}" rx="2"><title>k=${k}: ${sg(v, 2)}</title></rect>`;
+    s += `<text class="val" x="${cx}" y="${v >= 0 ? y1 - 4 : y1 + 12}" text-anchor="middle">${sg(v, 2)}</text>`;
+  });
+  return s + "</svg>";
+}
+
+function mwNote(d) {
+  const w = d.watch, [a, b] = d.benchmark_model_weight;
+  if (!w) return "";
+  const mw = w.model_weight, inside = mw >= a && mw <= b;
+  return `<div class="mwnote${inside ? "" : " warn"}"><b>Watch model weight ${mw}</b> (watch ${w.watch_id}, started ${esc(day(w.started_at))}, ${esc(w.predictor)}${w.in_play ? ", in-play bets on" : ""}).
+    The historical closing-odds benchmark supports <b>${a}–${b}</b> in every year (docs/PLAN.md B5)${inside ? "." : `: the watch trusts the model ${mw > b ? "more" : "less"} than that evidence. These log losses are the live check on it.`}</div>`;
+}
+
+function render() {
+  const d = S.data;
+  $("#mw").innerHTML = mwNote(d);
+  const tours = ["all", ...d.tours];
+  if (!tours.includes(S.tour)) tours.push(S.tour);
+  $("#tours").innerHTML = tours.map((t) => `<button data-v="${esc(t)}" aria-pressed="${t === S.tour}">${t === "all" ? "All" : esc(t)}</button>`).join("");
+  if (!d.cards.length) {
+    $("#cards").innerHTML = `<div class="empty">No settled, priced matches${S.tour !== "all" ? " for " + esc(S.tour) : ""} in live.db yet.</div>`;
+    return;
+  }
+  let h = "", hooks = [];
+  d.cards.forEach((c, ci) => {
+    h += `<h2>${esc(c.predictor)} · ${c.settled} settled matches priced</h2>${cardTable(c)}`;
+    h += `<div class="grid2" style="margin-top:10px">`;
+    for (const [ph, name] of [["pre_match", "Pre-match"], ["in_play", "In play"]]) {
+      const id = `run-${ci}-${ph}`;
+      h += `<div class="card"><h3>${name}: running model − market</h3>${runChart(c.running[ph], id)}
+        <div class="legend"><span><i style="background:var(--model);height:2px"></i>difference so far</span><span><i style="background:var(--band)"></i>±2 SE</span><span>below 0: model better</span></div></div>`;
+      hooks.push([id, c.running[ph]]);
+    }
+    h += `</div><div class="grid2" style="margin-top:10px"><div class="card"><h3>Feed lag</h3><div style="max-width:440px">${lagChart(c.lag)}</div>
+      <div class="meta">${c.lag.n_steps} live poll steps in ${c.lag.n_matches} matches, median gap ${c.lag.median_gap_s == null ? "–" : Math.round(c.lag.median_gap_s) + " s"}. Bars: corr(model move, market move k polls later).</div></div></div>`;
+  });
+  $("#cards").innerHTML = h;
+  for (const [id, pts] of hooks) hookRun(id, pts);
+}
+
+let timer = null;
+async function load() {
+  clearTimeout(timer);
+  const q = S.tour === "all" ? "" : "?tour=" + encodeURIComponent(S.tour);
+  try {
+    const r = await fetch("/api/scorecard" + q, { cache: "no-store" });
+    const j = await r.json();
+    if (r.status === 202) { $("#status").textContent = "Computing the scorecard…"; timer = setTimeout(load, (j.retry_s || 3) * 1000); return; }
+    if (!r.ok) throw new Error(j.error || r.status);
+    S.data = j.data;
+    $("#status").textContent = `Computed ${day(j.computed_at)} UTC in ${j.seconds} s${j.refreshing ? " · refreshing" : ""}${j.error ? " · last refresh failed: " + j.error : ""}`;
+    render();
+    timer = setTimeout(load, j.refreshing ? 5000 : 60000);
+  } catch (e) {
+    $("#status").textContent = "Unavailable: " + e.message;
+    timer = setTimeout(load, 15000);
+  }
+}
+$("#tours").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  S.tour = b.dataset.v; writeHash();
+  for (const x of $("#tours").children) x.setAttribute("aria-pressed", x === b);
+  load();
+});
+window.addEventListener("hashchange", () => { readHash(); load(); });
+let lastCW = CW();
+window.addEventListener("resize", () => { if (CW() !== lastCW && S.data) { lastCW = CW(); render(); } });
+readHash();
+load();
+</script>
+</body>
+</html>
