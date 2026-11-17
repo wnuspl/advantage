@@ -12,7 +12,9 @@ ChangeDetector  per match, compares this poll's B3a decision with what it last s
                   new   not actionable -> actionable
                   side  actionable on the other player
                   grew  stake >= grow_ratio x the stake at the last alert
-                  gone  was alerted as a bet, no longer actionable (with the reason)
+                  gone  was alerted as a bet, no longer actionable (with the reason). Not
+                        a sell signal: the message tells holders to hold, and to sell only
+                        on a 'side' alert (the model flags the other player)
                 Unthrottled: the watch prints every change.
 Alerter         turns changes into messages and applies the limits: a per-match cooldown
                 after a sent alert ('gone' bypasses it, so an edge that vanishes right after
@@ -157,8 +159,13 @@ def format_alert(ch: Change, cfg: AlertConfig) -> Alert:
     mkt = "-" if s.p_market is None else f"{s.p_market:.3f}"
     pm = "-" if s.p_model is None else f"{s.p_model:.3f}"
     if ch.kind == "gone":
-        title = f"GONE {e.title}: {d.reason or 'no bet'}"
-        body = [head, f"was ${ch.prev_cost:.0f}; model {pm} vs market {mkt} (P {e.a.name})"]
+        # decide() knows nothing of positions: 'gone' means no NEW buy at today's ask. Selling
+        # (= buying the other side) pays spread + fee again; it is worth it only when the
+        # model flags the other side, which comes as a 'side' alert, not this one.
+        title = f"GONE {e.title}: {d.reason or 'no bet'} (holders: hold)"
+        body = [head, f"was ${ch.prev_cost:.0f}; model {pm} vs market {mkt} (P {e.a.name})",
+                "Not a sell signal: no new buy at this price. If you hold it, hold; "
+                "sell only on a 'side flipped' alert."]
         prio, tags = 3, ["x"]
     else:
         sz = d.sizing

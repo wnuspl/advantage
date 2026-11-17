@@ -223,6 +223,7 @@ class WatchHookTest(Scenario):
         self.assertIn("BET Carlos Alcaraz", line1)
         self.assertIn("[sent]", line1)
         self.assertIn("GONE Alcaraz vs Tiafoe", line2)
+        self.assertIn("(holders: hold)", line2)
         rows = [dict(r) for r in rec.con.execute("SELECT kind, status, event FROM alert ORDER BY alert_id")]
         self.assertEqual([(r["kind"], r["status"]) for r in rows], [("new", "sent"), ("gone", "sent")])
         self.assertEqual(rec.counts()["alerts_sent"], 2)
