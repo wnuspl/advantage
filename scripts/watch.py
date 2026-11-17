@@ -72,7 +72,8 @@ def poll_once(rec: Recorder, wid: int, retr: Retriever, policy, series, ms_cache
         live = kalshi.live_batch(mids) if mids else {}
         for t in todo:
             try:
-                st = rec.settle(t, kalshi.get(f"/events/{t['event']}"), live.get(t["milestone"]))
+                st = rec.settle(t, kalshi.get(f"/events/{t['event']}"), live.get(t["milestone"]),
+                               milestone=ms_cache.get(t["event"]))
             except Exception as e:                       # one bad lookup must not stop the watch
                 print(f"  settle {t['event']}: {type(e).__name__}: {e}")
                 continue

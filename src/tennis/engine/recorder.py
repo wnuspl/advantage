@@ -186,12 +186,17 @@ class Recorder:
                WHERE t.event IS NULL AND e.last_seen >= ?""", (cut,)).fetchall()
         return [dict(r) for r in rows if r["event"] not in open_events or r["last_status"] == "closed"]
 
-    def settle(self, ev: dict, event_json: dict, details: dict | None, seen_at: str | None = None) -> dict | None:
+    def settle(self, ev: dict, event_json: dict, details: dict | None, seen_at: str | None = None,
+               milestone: dict | None = None) -> dict | None:
+        """The blob keeps everything a later tennis.db loader needs (kalshi_results.py):
+        the markets, the final live details (score, status, serve stats) and the milestone
+        (tournament, round, best-of, start, Sportradar id). Blobs written before 2026-11-16
+        lack the milestone; the export recovers it from the polls."""
         st = settlement_from(ev, event_json, details)
         if st is None:
             return None
         with self.con:
-            sha = self.put_blob({"event": event_json, "live": details})
+            sha = self.put_blob({"event": event_json, "live": details, "milestone": milestone})
             self.con.execute(
                 """INSERT OR IGNORE INTO settlement (event, seen_at, winner, result_a, result_b, value_a, value_b,
                        market_status, match_status, final_score, raw_sha) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",

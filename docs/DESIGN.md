@@ -113,6 +113,18 @@ The Sackmann match files stop at 2026-05-25 (tour level: Roland Garros 2026). Ac
 
 **Not covered.** Serve stats (the light layer uses its win/loss update for these matches), Challenger and ITF events, rankings (not fetched yet). Retirements and walkovers arrive as `outcome` and map to `matches.status`.
 
+## Kalshi results (recorded, not yet loaded)
+
+The Kalshi watch (`scripts/watch.py`, live.db) settles every match it saw: winner, how it ended, final set scores and **both players' serve statistics** (Sportradar feed: aces, double faults, first serves in/won, second serves won, service points won/lost, break points, service games won), for tour level and Challenger / WTA 125. That covers what the backbone lacks after 2026-05: Challenger results and serve stats for AcesAPI matches (AcesAPI has none).
+
+**Not in tennis.db yet, on purpose.** Loading changes tennis.db, which invalidates the A5 state snapshots and the engine cache. The results are kept as raw files until a loader milestone pins them:
+- `python scripts/kalshi_export.py [--live-db PATH]` writes settled matches not exported before to one immutable folder `data/raw/kalshi_results-<UTC>/` (`matches/<series>/<event>.json` + `export.json`), written under `.partial` and renamed when complete. The build only reads folders pinned in `data/build_manifest.json`, so an unpinned export changes nothing. `--check` parses without writing; `--check-raw` parses every exported file.
+- File format `kalshi_result/1` (`src/tennis/kalshi_results.py`): live.db event and settlement rows, the markets at settlement, the final live details and the milestone (tournament name, round, best-of, start, Sportradar id). Since 2026-11-16 the settlement blob in live.db holds the milestone too; for older ones the export takes it, and missing or unfinished live details, from the newest poll that had them (`milestone_from` / `live_from` say where).
+- `kalshi_results.parse(doc)` is the future loader's reader: tour and level from the series, winner/loser by competitor id (never name or order), status (`ended` -> completed; others as Sportradar names them, unverified), score winner first, and stats in `match_player_stats` columns (serve games = own holds + opponent's breaks; bp_faced = the opponent's break chances). Stats are dropped when serve points won do not equal first + second serve points won; `exact` = 0 marks a serve breakdown that is off by a point or two (3 of the first 24 matches).
+- Stable keys: the event ticker per match, Kalshi's competitor id (a UUID, the same across events) per player. Kalshi gives no surface, and the match day is UTC (`start`), not local.
+
+Open for the loader: link to AcesAPI / backbone matches by pair and date window (stats only where none exist, `match_seen` from `known_at`), create Challenger tournaments and editions from Kalshi names (surface via `engine/surfaces.py`), and decide whether the earliest settlements (before the export existed) are complete. Only matches the watch saw are recorded: a watch outage or a series it does not poll leaves gaps.
+
 ## models.db (modeling results)
 
 `models.db` (schema `models_schema.sql`, code `src/tennis/models_db.py`) holds everything a model run produces. It is **never rebuilt**: the schema is applied idempotently on every connect and changes only additively. `build_db.py` does not touch it, so sweeps and chosen parameters survive any number of data rebuilds.
