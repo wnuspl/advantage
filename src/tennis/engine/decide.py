@@ -93,6 +93,16 @@ def decide(s: MarketSnapshot, books: dict, pol: Policy) -> Decision:
     if not d.bet:
         d.side = d.name = None
         d.reason = "no edge after spread and fees"
+        # an edge at the best ask that Kelly sizes below one contract: say so (small bankrolls)
+        for own, bo, bp, opp, p in ((e.a, ba, bb, e.b, d.p_use), (e.b, bb, ba, e.a, 1 - d.p_use)):
+            lad = kalshi.ladder(bo, own.ticker, bp, opp.ticker)
+            if lad:
+                c = lad[0].price + pol.fee_rate * lad[0].price * (1 - lad[0].price)
+                if p > c:
+                    d.reason = (f"under one contract: {own.name} +{100 * (p - c):.1f} pts at {lad[0].price:.2f} "
+                                f"after fees, Kelly stake below the price (bankroll ${pol.bankroll:g}, "
+                                f"kelly {pol.kelly:g})")
+                    break
     return d
 
 

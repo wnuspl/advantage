@@ -467,6 +467,7 @@ function decisionCell(r) {
     return `<span class="dec yes">Bet ${esc(lastName(on))}<br>${dc.contracts} @ ${cents(dc.ask)}</span>`;
   }
   const short = { "stale rating": "Stale rating", "in play (policy off)": "In play: off", "no edge after spread and fees": "No edge after costs" };
+  if (dc.reason.startsWith("under one contract")) return `<span class="dec" title="${esc(dc.reason)}" style="color:var(--warn)">Edge, &lt; 1 contract</span>`;
   return `<span class="dec" title="${esc(dc.reason)}">${esc(short[dc.reason] || dc.reason.replace(/^not priced: /, ""))}</span>`;
 }
 

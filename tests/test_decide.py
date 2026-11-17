@@ -59,6 +59,14 @@ class DecideTest(NoNetwork):
         self.assertFalse(any(d.bet for d in ds))
         self.assertEqual(sum(d.reason == "no edge after spread and fees" for d in ds), 6)
 
+    def test_edge_below_one_contract_says_so(self):
+        """A real edge that Kelly sizes under one contract on a tiny bankroll is not 'no edge'."""
+        r = by_event(self.rows(Const(0.97)))[ALC]
+        self.assertTrue(decide(r, self.pull.books, Policy(bankroll=1000)).bet)
+        d = decide(r, self.pull.books, Policy(bankroll=0.5))
+        self.assertFalse(d.bet)
+        self.assertTrue(d.reason.startswith("under one contract: Carlos Alcaraz +"), d.reason)
+
     def test_market_only_weight_bets_nothing(self):
         ds = decide_all(self.rows(Const(0.99)), self.pull.books, Policy(model_weight=0.0, in_play=True, kelly=1.0))
         self.assertFalse(any(d.bet for d in ds))
