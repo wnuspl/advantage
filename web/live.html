@@ -75,7 +75,9 @@ label.chk { display: inline-flex; align-items: center; gap: 6px; color: var(--te
 .bet { background: var(--panel); border: 1px solid var(--accent); border-left-width: 4px; border-radius: 8px; padding: 12px 14px; }
 .bet .who { font-size: 17px; font-weight: 680; }
 .bet .vs { color: var(--muted); font-size: 13px; }
-.bet .nums { display: grid; grid-template-columns: repeat(5, auto); gap: 2px 14px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.bet .buy { margin-top: 8px; font-size: 16px; font-variant-numeric: tabular-nums; }
+.bet .buy b { font-weight: 700; }
+.bet .buy .fee { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .bet .nums .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .bet .nums .v { font-weight: 650; }
 .empty { color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13px; }
@@ -370,6 +372,26 @@ function renderKpis(rows) {
   }
 }
 
+// What to enter on Kalshi: per order route (YES on the player's market or NO on the
+// opponent's), the contract count and the limit price (the highest level it fills at).
+function buyLines(r, dc) {
+  const fills = dc.fills || [];
+  if (!fills.length) return `<div class="buy">Buy ${dc.contracts} @ ${cents(dc.ask)} <span class="fee">+ ${money(dc.fees)} fee</span></div>`;
+  const byRoute = new Map();
+  for (const f of fills) {
+    const g = byRoute.get(f.route) || { n: 0, max: 0 };
+    g.n += f.contracts; g.max = Math.max(g.max, f.price);
+    byRoute.set(f.route, g);
+  }
+  const nameOf = (ticker) => ticker === r.a.ticker ? r.a.name : ticker === r.b.ticker ? r.b.name : ticker;
+  const parts = [...byRoute].map(([route, g]) => {
+    const [side, ticker] = route.split(" ");
+    return `<b>${g.n}</b> ${side === "YES" ? "Yes" : "No"} on ${esc(lastName(nameOf(ticker)))} at <b>${cents(g.max)}</b>`;
+  });
+  return `<div class="buy" title="Contracts to buy and the limit price to enter (the highest price these contracts fill at); a contract pays $1 if the bet wins">
+    Buy ${parts.join(" and ")} <span class="fee">+ ${money(dc.fees)} fee</span></div>`;
+}
+
 function renderBets(rows) {
   const bets = rows.filter((r) => r.bet && passes(r, true));
   const sec = $("#betsec");
@@ -387,18 +409,9 @@ function renderBets(rows) {
       <div class="meta">${esc(r.tour_label)} · ${esc(r.tournament || "")} · ${r.live ? '<span class="badge live">LIVE</span>' : esc(until(r.start, Date.now()) || "due")}</div>
       <div class="who">${esc(on.name)}</div>
       <div class="vs">vs ${esc(other.name)}</div>
-      <div class="nums">
-        <span class="k" title="Win probability the bet is sized on: the model blended with the market by the model weight">Win prob</span>
-        <span class="k" title="Cheapest price to buy this player winning (YES on him or NO on his opponent); a contract pays $1 if he wins">Ask</span>
-        <span class="k" title="Contracts to buy at their average price (each pays $1 if he wins; above the ask when the cheapest level runs out)">Buy</span>
-        <span class="k" title="Total you pay: the contracts (deeper ones may fill a cent or two above the ask) plus Kalshi's fee">Cost</span>
-        <span class="k" title="Expected profit after fees, at the win probability on the left">EV</span>
-        <span class="v">${pct(dc.p_side)}</span><span class="v">${cents(dc.ask)}</span>
-        <span class="v">${dc.contracts} @ ${Math.round(1000 * (dc.cost - dc.fees) / dc.contracts) / 10}¢</span>
-        <span class="v">${money(dc.cost)}<span class="meta" style="font-weight:400"> incl. ${money(dc.fees)} fee</span></span>
-        <span class="v">${money(dc.ev)}</span>
-      </div>
-      <div class="meta" style="margin-top:6px">Confidence ${r.conf == null ? "–" : pct(r.conf)} · edge ${r.edge == null ? "–" : (100 * r.edge).toFixed(1)} pts vs mid</div>
+      ${r.live && r.score ? `<div class="score" style="margin-top:4px">${esc(r.score.replace(/\s*\*[AB] serving/, ""))}${r.a_serving != null ? ` <span class="meta">· ${esc(lastName(r.a_serving === 1 ? r.a.name : r.b.name))} serving</span>` : ""}</div>` : ""}
+      ${buyLines(r, dc)}
+      <div class="meta" style="margin-top:6px">Win prob ${pct(dc.p_side)} · EV ${money(dc.ev)} · confidence ${r.conf == null ? "–" : pct(r.conf)} · edge ${r.edge == null ? "–" : (100 * r.edge).toFixed(1)} pts vs mid</div>
     </div>`;
   }).join("") + "</div>";
 }

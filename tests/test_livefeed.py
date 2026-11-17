@@ -105,6 +105,12 @@ class LiveFeedTest(NoNetwork):
             d = self.recorded[m["event"]]
             self.assertEqual((m["decision"]["side"], m["decision"]["contracts"], m["decision"]["reason"]),
                              (d.side, d.sizing.contracts, d.reason), m["event"])
+        recorded = {m["event"]: m["decision"] for m in self.view()["matches"]}
+        for m in v["matches"]:                               # what to type on Kalshi: route, count, price
+            for dec in (m["decision"], recorded[m["event"]]):
+                self.assertEqual(sum(f["contracts"] for f in dec["fills"]), dec["contracts"])
+                self.assertTrue(all(f["route"].split(" ")[1] in (m["a"]["ticker"], m["b"]["ticker"])
+                                    for f in dec["fills"]))
 
     def test_resizing_changes_stakes_not_refusals(self):
         base = {m["event"]: m["decision"] for m in self.view()["matches"]}

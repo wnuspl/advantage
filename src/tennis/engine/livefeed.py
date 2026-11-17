@@ -120,7 +120,7 @@ def live_view(con: sqlite3.Connection, now: datetime | None = None, *, history_h
     rows = con.execute(
         f"""SELECT s.*, {sd}, e.series, e.tour, e.title, e.tournament, e.start, e.a_name, e.b_name,
                    e.a_ticker, e.b_ticker, e.first_seen,
-                   d.side, d.p_use, d.p_side, d.ask, d.contracts, d.cost, d.fees, d.ev, d.reason
+                   d.side, d.p_use, d.p_side, d.ask, d.contracts, d.cost, d.fees, d.ev, d.reason, d.fills
             FROM snapshot s JOIN event e USING (event)
             LEFT JOIN decision d ON d.poll_id = s.poll_id AND d.event = s.event
             WHERE s.poll_id = ?""", (pid,)).fetchall()
@@ -157,10 +157,13 @@ def live_view(con: sqlite3.Connection, now: datetime | None = None, *, history_h
             sz = d.sizing
             m["decision"] = {"side": d.side, "p_use": _r(d.p_use), "p_side": _r(d.p_side), "ask": _r(d.ask),
                              "contracts": sz.contracts, "cost": _r(sz.cost), "fees": _r(sz.fees),
-                             "ev": _r(sz.ev), "reason": d.reason}
+                             "ev": _r(sz.ev), "reason": d.reason,
+                             "fills": [{"price": f.price, "contracts": f.contracts, "route": f.route} for f in sz.fills]}
         else:
             m["decision"] = None if r["reason"] is None else {k: (_r(r[k]) if isinstance(r[k], float) else r[k])
                                                               for k in DECISION}
+            if m["decision"] is not None:
+                m["decision"]["fills"] = json.loads(r["fills"] or "[]")
         out["matches"].append(m)
 
     cut = _iso(now - timedelta(hours=settled_hours))
