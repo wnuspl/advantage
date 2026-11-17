@@ -247,8 +247,10 @@ class Recorder:
     def record_final_form(self, ev: dict, details: dict | None, predictor, now: str | None = None) -> dict | None:
         """The model's final read of each serve stream: Predictor.predict on the match's last
         query with the settlement's final Kalshi stats as `live`. Kept only when the predictor
-        reports stream form (detail form_a / form_b) and both servers played points (voids and
-        walkovers have none). Returns the stored row, or None."""
+        reports stream form (detail form_a / form_b), both servers played points (voids and
+        walkovers have none), and neither player's last rated match is on or after the match
+        day (a backfill after tennis.db took in the match would measure form against ratings
+        that already include it). Returns the stored row, or None."""
         if not details:
             return None
         ls = kalshi.live_state(details, ev["a_comp"], ev["b_comp"])
@@ -263,6 +265,8 @@ class Recorder:
         d = pr.detail or {}
         if "form_a" not in d or "form_b" not in d:
             return None
+        if any((d.get(k) or "") >= q.on for k in ("last_a", "last_b")):
+            return None          # the ratings already include this match day (a late backfill): not pre-match
         row = {"event": ev["event"], "recorded_at": now or _now(), "model": pr.model, "form_var": d.get("form_var"),
                "x_a": d.get("x_a"), "x_b": d.get("x_b"),
                "serve_a_won": ls.serve_a[0], "serve_a_played": ls.serve_a[1],

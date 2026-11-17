@@ -203,6 +203,9 @@ class FinalFormTest(unittest.TestCase):
         self.assertIsNone(self.rec.record_final_form(self.ev, details(stats(0, 0), stats(0, 0)), self.pp))
         self.assertIsNone(self.rec.record_final_form(self.ev, self.final, FixedPredictor(0.5)))
         self.assertIsNone(self.rec.record_final_form({**self.ev, "event": "KXATPMATCH-NEVERPRICED"}, self.final, self.pp))
+        # ratings that already include the match day (player 1 last rated 2020-01-20): not recorded
+        self.rec.con.execute("UPDATE snapshot SET day = '2020-01-20' WHERE event = ?", (EV,))
+        self.assertIsNone(self.rec.record_final_form(self.ev, self.final, self.pp))
         self.assertEqual(self.rec.con.execute("SELECT COUNT(*) FROM final_form").fetchone()[0], 0)
 
     def test_old_db_without_final_form_table(self):
