@@ -391,11 +391,11 @@ function renderBets(rows) {
         <span class="k" title="Win probability the bet is sized on: the model blended with the market by the model weight">Win prob</span>
         <span class="k" title="Cheapest price to buy this player winning (YES on him or NO on his opponent); a contract pays $1 if he wins">Ask</span>
         <span class="k" title="Contracts to buy at their average price (each pays $1 if he wins; above the ask when the cheapest level runs out)">Buy</span>
-        <span class="k" title="Total price of those contracts (deeper ones may fill a cent or two above the ask), plus Kalshi's fee">Cost</span>
+        <span class="k" title="Total you pay: the contracts (deeper ones may fill a cent or two above the ask) plus Kalshi's fee">Cost</span>
         <span class="k" title="Expected profit after fees, at the win probability on the left">EV</span>
         <span class="v">${pct(dc.p_side)}</span><span class="v">${cents(dc.ask)}</span>
-        <span class="v">${dc.contracts} @ ${Math.round(1000 * dc.cost / dc.contracts) / 10}¢</span>
-        <span class="v">${money(dc.cost)}<span class="meta" style="font-weight:400"> + ${money(dc.fees)} fee</span></span>
+        <span class="v">${dc.contracts} @ ${Math.round(1000 * (dc.cost - dc.fees) / dc.contracts) / 10}¢</span>
+        <span class="v">${money(dc.cost)}<span class="meta" style="font-weight:400"> incl. ${money(dc.fees)} fee</span></span>
         <span class="v">${money(dc.ev)}</span>
       </div>
       <div class="meta" style="margin-top:6px">Confidence ${r.conf == null ? "–" : pct(r.conf)} · edge ${r.edge == null ? "–" : (100 * r.edge).toFixed(1)} pts vs mid</div>
@@ -512,7 +512,7 @@ function detailRow(r) {
   if (r.live_problem) items.push(["Live feed", r.live_problem]);
   const mw = S.data.watch && S.data.watch.policy ? S.data.watch.policy.model_weight : null;
   if (dc.p_use != null) items.push([`Policy P(${lastName(r.a.name)})`, `${pct(dc.p_use, 1)}${mw != null ? ` (model weight ${mw}, rest market)` : ""}`]);
-  items.push(["Policy", dc.contracts > 0 ? `bet ${dc.contracts} for ${money(dc.cost)} + ${money(dc.fees)} fees, EV ${money(dc.ev)}` : (dc.reason || "–")]);
+  items.push(["Policy", dc.contracts > 0 ? `bet ${dc.contracts} for ${money(dc.cost)} incl. ${money(dc.fees)} fees, EV ${money(dc.ev)}` : (dc.reason || "–")]);
   return `<tr class="detail"><td colspan="8"><div class="dgrid">${items.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div>
     <div class="notes">${esc(r.event)} · first seen ${esc(dayClock(r.first_seen))}</div></td></tr>`;
 }
