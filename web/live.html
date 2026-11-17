@@ -71,8 +71,10 @@ input[type=number] { width: 58px; }
 label.chk { display: inline-flex; align-items: center; gap: 6px; color: var(--text); cursor: pointer; }
 
 /* Flagged bets */
-.bets { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
-.bet { background: var(--panel); border: 1px solid var(--accent); border-left-width: 4px; border-radius: 8px; padding: 12px 14px; }
+.bets { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr)); gap: 10px; }
+.bet { background: var(--panel); border: 1px solid var(--accent); border-left-width: 4px; border-radius: 8px; padding: 12px 14px;
+  min-width: 0; overflow-wrap: anywhere; }
+.bet .meta, .bet .score { white-space: normal; }
 .bet .who { font-size: 17px; font-weight: 680; }
 .bet .vs { color: var(--muted); font-size: 13px; }
 .bet .buy { margin-top: 8px; font-size: 16px; font-variant-numeric: tabular-nums; }
@@ -372,23 +374,25 @@ function renderKpis(rows) {
   }
 }
 
-// What to enter on Kalshi: per order route (YES on the player's market or NO on the
-// opponent's), the contract count and the limit price (the highest level it fills at).
+// What to enter on Kalshi, in dollars: per order route (YES on the player's market or NO
+// on the opponent's), the amount before fees, the fee on top, and the highest price the
+// amount fills at (don't pay more than that per contract).
 function buyLines(r, dc) {
-  const fills = dc.fills || [];
-  if (!fills.length) return `<div class="buy">Buy ${dc.contracts} @ ${cents(dc.ask)} <span class="fee">+ ${money(dc.fees)} fee</span></div>`;
+  const fills = dc.fills && dc.fills.length ? dc.fills
+    : [{ price: dc.ask, contracts: dc.contracts, route: `${dc.side === "a" ? "YES" : "NO"} ${r.a.ticker}` }];
   const byRoute = new Map();
   for (const f of fills) {
-    const g = byRoute.get(f.route) || { n: 0, max: 0 };
-    g.n += f.contracts; g.max = Math.max(g.max, f.price);
+    const g = byRoute.get(f.route) || { usd: 0, max: 0 };
+    g.usd += f.price * f.contracts; g.max = Math.max(g.max, f.price);
     byRoute.set(f.route, g);
   }
   const nameOf = (ticker) => ticker === r.a.ticker ? r.a.name : ticker === r.b.ticker ? r.b.name : ticker;
   const parts = [...byRoute].map(([route, g]) => {
     const [side, ticker] = route.split(" ");
-    return `<b>${g.n}</b> ${side === "YES" ? "Yes" : "No"} on ${esc(lastName(nameOf(ticker)))} at <b>${cents(g.max)}</b>`;
+    return `<b>${money(g.usd)}</b> on <b>${side === "YES" ? "Yes" : "No"} ${esc(lastName(nameOf(ticker)))}</b>`
+      + ` <span class="fee">(up to ${cents(g.max)})</span>`;
   });
-  return `<div class="buy" title="Contracts to buy and the limit price to enter (the highest price these contracts fill at); a contract pays $1 if the bet wins">
+  return `<div class="buy" title="Dollar amount to buy, before Kalshi's fee; 'up to' is the highest price per contract it fills at">
     Buy ${parts.join(" and ")} <span class="fee">+ ${money(dc.fees)} fee</span></div>`;
 }
 
