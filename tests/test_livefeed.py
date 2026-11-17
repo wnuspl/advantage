@@ -29,6 +29,7 @@ from test_recorder import FINAL_LIVE, GG, finished_event                # noqa: 
 import web_server                                                       # noqa: E402
 
 NOW = datetime(2026, 11, 15, 22, 40, tzinfo=timezone.utc)
+POL = Policy(bankroll=100, model_weight=0.6, in_play=True)          # the watch's policy in these tests
 
 
 class Spread:
@@ -46,9 +47,10 @@ class LiveFeedTest(NoNetwork):
         self.db = self.tmp / "live.db"
         self.pull = load_pull(FIX)
         rec = Recorder(self.db)
-        wid = rec.start_watch("spread", Policy(model_weight=0.15), ["KXATPMATCH"], 60)
+        wid = rec.start_watch("spread", POL, ["KXATPMATCH"], 60)
         rows = snapshots(self.pull, Spread(), resolver())
-        rec.record_poll(wid, self.pull, rows, decide_all(rows, self.pull.books, Policy()))
+        self.recorded = {d.event: d for d in decide_all(rows, self.pull.books, POL)}
+        rec.record_poll(wid, self.pull, rows, list(self.recorded.values()))
         ev = rec.to_settle(self.all_events(rows) - {GG}, now=self.pull.as_of)[0]
         rec.settle(ev, finished_event(), FINAL_LIVE, seen_at="2026-11-15T22:35:00+00:00")
         rec.record_error(wid, "2026-11-15T22:39:00+00:00", "URLError: down")
@@ -72,7 +74,8 @@ class LiveFeedTest(NoNetwork):
 
     def test_view(self):
         v = self.view()
-        self.assertEqual(v["watch"]["policy"]["model_weight"], 0.15)
+        self.assertEqual(v["watch"]["policy"]["model_weight"], 0.6)
+        self.assertFalse(v["sizing"]["custom"])
         self.assertEqual(v["poll"]["as_of"], self.pull.as_of)
         self.assertEqual(v["error"]["error"], "URLError: down")          # newest poll failed: shown, not used
         self.assertEqual(len(v["matches"]), self.n)
@@ -92,6 +95,28 @@ class LiveFeedTest(NoNetwork):
         else:                                                            # first seen in play: no pre-match numbers
             self.assertIsNone(st[0]["pre"])
         json.dumps(v)                                                    # JSON-ready
+
+    def test_resizing_with_the_watch_policy_reproduces_its_decisions(self):
+        """Re-deciding on the recorded books with the watch's own numbers = what the watch decided."""
+        v = self.view(overrides={"bankroll": 100, "model_weight": 0.6})
+        self.assertTrue(v["sizing"]["custom"])
+        self.assertTrue(any(d.bet for d in self.recorded.values()))
+        for m in v["matches"]:
+            d = self.recorded[m["event"]]
+            self.assertEqual((m["decision"]["side"], m["decision"]["contracts"], m["decision"]["reason"]),
+                             (d.side, d.sizing.contracts, d.reason), m["event"])
+
+    def test_resizing_changes_stakes_not_refusals(self):
+        base = {m["event"]: m["decision"] for m in self.view()["matches"]}
+        big = {m["event"]: m["decision"] for m in self.view(overrides={"bankroll": 10000})["matches"]}
+        self.assertGreater(sum(d["contracts"] for d in big.values()), sum(d["contracts"] for d in base.values()))
+        for ev, d in big.items():
+            if base[ev]["reason"] and not base[ev]["reason"].startswith(("no edge", "under one")):
+                self.assertEqual(d["reason"], base[ev]["reason"])          # stale / not priced stay refused
+        tiny = self.view(overrides={"bankroll": 1, "kelly": 5})          # kelly clamped to 1
+        self.assertEqual((tiny["sizing"]["bankroll"], tiny["sizing"]["kelly"]), (1.0, 1.0))
+        market = self.view(overrides={"model_weight": 0})["matches"]
+        self.assertFalse(any(m["decision"]["contracts"] for m in market))   # market only: no edge
 
     def test_windows(self):
         self.assertEqual(self.view(settled_hours=0.01)["settled"], [])
@@ -168,6 +193,18 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(r.headers["Cache-Control"], "no-store")
             v = json.loads(r.read())
         self.assertEqual((v["poll"], v["matches"]), (None, []))
+
+    def test_sizing_query(self):
+        self.assertEqual(web_server.sizing_overrides("bankroll=100&kelly=0.5&mw=0.3&x=1"),
+                         {"bankroll": 100.0, "kelly": 0.5, "model_weight": 0.3})
+        for bad in ("bankroll=abc", "kelly=nan", "mw=inf"):
+            with self.assertRaises(ValueError):
+                web_server.sizing_overrides(bad)
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.get("/api/live?bankroll=lots")
+        self.assertEqual(cm.exception.code, 400)
+        with self.get("/api/live?bankroll=50") as r:
+            self.assertEqual(json.loads(r.read())["poll"], None)
 
     def test_api_live_without_db(self):
         with self.assertRaises(urllib.error.HTTPError) as cm:

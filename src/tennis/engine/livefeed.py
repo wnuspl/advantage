@@ -13,13 +13,22 @@ The view:
   settled    matches settled in the last `settled_hours`: winner, final score, the last
              pre-match model and market numbers, and whether the policy flagged a bet then
   alerts     the latest decision alerts
+  sizing     the policy the decisions use: the watch's own, or the watch's with the viewer's
+             bankroll / Kelly fraction / model weight (`overrides`), in which case every
+             match is re-decided with engine.decide on the poll's recorded order books
+             (the same code the watch runs; its alerts keep using its own policy)
 """
 from __future__ import annotations
 
 import json
 import sqlite3
+import zlib
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace as NS
+
+from .decide import Policy, decide_all
 
 TOUR_LABEL = {"KXATPMATCH": "ATP", "KXWTAMATCH": "WTA",
               "KXATPCHALLENGERMATCH": "ATP Challenger", "KXWTACHALLENGERMATCH": "WTA 125"}
@@ -29,6 +38,30 @@ SNAP = ("status", "skip", "p_market", "ask_a", "ask_b", "score", "sets_a", "sets
         "live_problem", "p_model", "p_raw", "in_play", "stale", "a_resolved", "b_resolved", "a_last_rated",
         "b_last_rated", "a_stale_days", "b_stale_days", "day", "surface", "surface_from", "best_of", "final")
 DECISION = ("side", "p_use", "p_side", "ask", "contracts", "cost", "fees", "ev", "reason")
+OVERRIDABLE = {"bankroll": (1.0, 1e6), "kelly": (0.01, 1.0), "model_weight": (0.0, 1.0)}
+
+
+def policy_with(watch_policy: dict, overrides: dict | None) -> Policy:
+    """The watch's policy with the viewer's bankroll / kelly / model_weight (each clamped)."""
+    known = {k: v for k, v in watch_policy.items() if k in Policy.__dataclass_fields__}
+    for k, v in (overrides or {}).items():
+        lo, hi = OVERRIDABLE[k]
+        known[k] = min(max(float(v), lo), hi)
+    return Policy(**known)
+
+
+def redecide(rows, books: dict, pol: Policy, placeholder: bool = False) -> dict:
+    """engine.decide on recorded snapshot rows (sqlite rows with the snapshot + event columns):
+    event -> Decision. The rows carry what decide() reads from a live MarketSnapshot."""
+    snaps = []
+    for r in rows:
+        priced = not r["skip"] and r["p_model"] is not None
+        pred = NS(p_a=r["p_model"], stale=bool(r["stale"]), detail={"placeholder": True} if placeholder else {})
+        ev = NS(event=r["event"], a=NS(ticker=r["a_ticker"], name=r["a_name"]),
+                b=NS(ticker=r["b_ticker"], name=r["b_name"]))
+        snaps.append(NS(event=ev, skip=r["skip"], prediction=pred if priced else None, status=r["status"],
+                        p_market=r["p_market"], p_model=r["p_model"]))
+    return {d.event: d for d in decide_all(snaps, books, pol)}
 
 
 def connect(path: Path | str) -> sqlite3.Connection:
@@ -60,23 +93,26 @@ def latest_poll_id(con: sqlite3.Connection) -> int | None:
 
 
 def live_view(con: sqlite3.Connection, now: datetime | None = None, *, history_hours: float = 6,
-              history_points: int = 72, settled_hours: float = 48, n_alerts: int = 30) -> dict:
+              history_points: int = 72, settled_hours: float = 48, n_alerts: int = 30,
+              overrides: dict | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     cols = {r[1] for r in con.execute("PRAGMA table_info(snapshot)")}
     has_sd = "p_sd" in cols
     w = con.execute("SELECT * FROM watch ORDER BY watch_id DESC LIMIT 1").fetchone()
     out: dict = {"now": _iso(now), "watch": None, "poll": None, "error": None,
-                 "matches": [], "settled": [], "alerts": []}
+                 "matches": [], "settled": [], "alerts": [], "sizing": None}
     if w is not None:
         out["watch"] = {"predictor": w["predictor"], "started_at": w["started_at"], "every_s": w["every_s"],
                         "policy": json.loads(w["policy"]), "series": w["series"].split(",")}
+        pol = policy_with(out["watch"]["policy"], overrides)
+        out["sizing"] = {**asdict(pol), "custom": bool(overrides)}
     newest = con.execute("SELECT poll_id, as_of, error FROM poll ORDER BY poll_id DESC LIMIT 1").fetchone()
     if newest is not None and newest["error"]:
         out["error"] = {"as_of": newest["as_of"], "error": newest["error"][:300]}
     pid = latest_poll_id(con)
     if pid is None:
         return out
-    p = con.execute("SELECT poll_id, as_of, done_at, n_events FROM poll WHERE poll_id=?", (pid,)).fetchone()
+    p = con.execute("SELECT poll_id, as_of, done_at, n_events, books_sha FROM poll WHERE poll_id=?", (pid,)).fetchone()
     out["poll"] = {"poll_id": pid, "as_of": p["as_of"], "done_at": p["done_at"], "n_events": p["n_events"],
                    "age_s": round((now - _parse(p["as_of"])).total_seconds())}
 
@@ -88,6 +124,12 @@ def live_view(con: sqlite3.Connection, now: datetime | None = None, *, history_h
             FROM snapshot s JOIN event e USING (event)
             LEFT JOIN decision d ON d.poll_id = s.poll_id AND d.event = s.event
             WHERE s.poll_id = ?""", (pid,)).fetchall()
+
+    mine = None
+    if overrides and w is not None and rows:
+        b = con.execute("SELECT zlib FROM blob WHERE sha256 = ?", (p["books_sha"],)).fetchone()
+        books = json.loads(zlib.decompress(b[0]).decode("utf-8")) if b else {}
+        mine = redecide(rows, books, pol, placeholder=w["predictor"].startswith("fixed"))
 
     since = _iso(now - timedelta(hours=history_hours))
     hist: dict[str, list] = {}
@@ -110,8 +152,15 @@ def live_view(con: sqlite3.Connection, now: datetime | None = None, *, history_h
              "p_sd": _r(r["p_sd"]), "hist": _thin(hist.get(r["event"], []), history_points)}
         for k in SNAP:
             m[k] = _r(r[k]) if isinstance(r[k], float) else r[k]
-        m["decision"] = None if r["reason"] is None else {k: (_r(r[k]) if isinstance(r[k], float) else r[k])
-                                                          for k in DECISION}
+        if mine is not None:
+            d = mine[r["event"]]
+            sz = d.sizing
+            m["decision"] = {"side": d.side, "p_use": _r(d.p_use), "p_side": _r(d.p_side), "ask": _r(d.ask),
+                             "contracts": sz.contracts, "cost": _r(sz.cost), "fees": _r(sz.fees),
+                             "ev": _r(sz.ev), "reason": d.reason}
+        else:
+            m["decision"] = None if r["reason"] is None else {k: (_r(r[k]) if isinstance(r[k], float) else r[k])
+                                                              for k in DECISION}
         out["matches"].append(m)
 
     cut = _iso(now - timedelta(hours=settled_hours))

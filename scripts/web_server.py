@@ -9,7 +9,9 @@ Routes:
     /, /live              web/live.html
     /ratings              web/ratings.html
     /nav.js               the shared navigation bar (web/nav.js)
-    /api/live             engine.livefeed.live_view(live.db) as JSON (recomputed at most every few s)
+    /api/live             engine.livefeed.live_view(live.db) as JSON (recomputed at most every few s);
+                          ?bankroll=&kelly=&mw= re-size the bets for the viewer (read-only:
+                          nothing is stored, the watch and its alerts keep their own policy)
     /data/index.json      the ratings export's index (weeks, fields, run)
     /data/players.json
     /data/weeks/<monday>.json.gz   served as JSON with Content-Encoding: gzip
@@ -27,7 +29,7 @@ from email.utils import formatdate
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -64,25 +66,46 @@ def resolve(data_dir: Path, path: str, web: Path = WEB) -> tuple[Path, str, bool
     return None
 
 
+QUERY = {"bankroll": "bankroll", "kelly": "kelly", "mw": "model_weight"}
+
+
+def sizing_overrides(query: str) -> dict:
+    """?bankroll=100&kelly=0.25&mw=0.5 -> {'bankroll': 100.0, ...}; ValueError if malformed."""
+    out = {}
+    for k, v in parse_qs(query).items():
+        if k in QUERY:
+            x = float(v[-1])
+            if x != x or x in (float("inf"), float("-inf")):
+                raise ValueError(k)
+            out[QUERY[k]] = x
+    return out
+
+
 class LiveCache:
-    """live_view() of live.db, recomputed when older than `ttl` seconds (the watch polls
-    every ~60 s; several open tabs share one computation)."""
+    """live_view() of live.db per sizing, recomputed when older than `ttl` seconds (the watch
+    polls every 20-60 s; open tabs with the same settings share one computation)."""
 
-    def __init__(self, path: Path, ttl: float = 5.0):
-        self.path, self.ttl = Path(path), ttl
+    def __init__(self, path: Path, ttl: float = 5.0, keep: int = 16):
+        self.path, self.ttl, self.keep = Path(path), ttl, keep
         self.lock = threading.Lock()
-        self.at, self.body = 0.0, b""
+        self.cache: dict[tuple, tuple[float, bytes]] = {}
 
-    def get(self) -> bytes:
+    def get(self, overrides: dict | None = None) -> bytes:
+        key = tuple(sorted((overrides or {}).items()))
         with self.lock:
-            if time.monotonic() - self.at > self.ttl or not self.body:
-                con = livefeed.connect(self.path)
-                try:
-                    self.body = json.dumps(livefeed.live_view(con), separators=(",", ":")).encode("utf-8")
-                finally:
-                    con.close()
-                self.at = time.monotonic()
-            return self.body
+            hit = self.cache.get(key)
+            if hit and time.monotonic() - hit[0] <= self.ttl:
+                return hit[1]
+            con = livefeed.connect(self.path)
+            try:
+                body = json.dumps(livefeed.live_view(con, overrides=overrides or None),
+                                  separators=(",", ":")).encode("utf-8")
+            finally:
+                con.close()
+            if len(self.cache) >= self.keep:
+                self.cache.pop(min(self.cache, key=lambda k: self.cache[k][0]))
+            self.cache[key] = (time.monotonic(), body)
+            return body
 
 
 def make_handler(data_dir: Path, quiet: bool = False, live_db: Path | None = None, web: Path = WEB):
@@ -140,7 +163,12 @@ def make_handler(data_dir: Path, quiet: bool = False, live_db: Path | None = Non
                 msg = json.dumps({"error": "no live.db: the Kalshi watch (scripts/watch.py run) has not run here"})
                 return self._send(HTTPStatus.SERVICE_UNAVAILABLE, "application/json", msg.encode(), body)
             try:
-                data = live.get()
+                overrides = sizing_overrides(urlsplit(self.path).query)
+            except ValueError:
+                msg = json.dumps({"error": "bad sizing: bankroll, kelly and mw must be numbers"})
+                return self._send(HTTPStatus.BAD_REQUEST, "application/json", msg.encode(), body)
+            try:
+                data = live.get(overrides)
             except Exception as e:                     # locked or mid-migration: say so, the page retries
                 msg = json.dumps({"error": f"live.db unreadable: {type(e).__name__}: {e}"})
                 return self._send(HTTPStatus.SERVICE_UNAVAILABLE, "application/json", msg.encode(), body)

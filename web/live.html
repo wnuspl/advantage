@@ -66,6 +66,8 @@ button:hover { background: var(--hover); }
 .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 input[type=search] { width: 170px; }
 input[type=number] { width: 58px; }
+#bankroll { width: 84px; }
+.controls.sizing { padding-top: 2px; }
 label.chk { display: inline-flex; align-items: center; gap: 6px; color: var(--text); cursor: pointer; }
 
 /* Flagged bets */
@@ -188,6 +190,13 @@ footer p { margin: 4px 0; }
   <div class="group"><span class="lbl">Min edge</span><input type="number" id="minedge" min="0" max="50" step="1" value="0" aria-label="Minimum edge in percentage points"><span class="meta">pts</span></div>
   <div class="group"><input type="search" id="q" placeholder="Player or event" aria-label="Search"></div>
 </div>
+<div class="controls sizing" id="sizing">
+  <div class="group"><span class="lbl">Bankroll</span><span class="meta">$</span><input type="number" id="bankroll" min="1" step="10" aria-label="Bankroll in dollars"></div>
+  <div class="group"><span class="lbl" title="Fraction of the Kelly stake (1 = full Kelly)">Kelly</span><input type="number" id="kelly" min="0.01" max="1" step="0.05" aria-label="Kelly fraction"></div>
+  <div class="group"><span class="lbl" title="How much the bet probability trusts the model over the market (logit blend; 1 = model only, 0 = market only)">Model weight</span><input type="number" id="mw" min="0" max="1" step="0.05" aria-label="Model weight"></div>
+  <button id="sizereset" hidden>Use the watch's</button>
+  <span class="meta" id="sizenote"></span>
+</div>
 
 <section id="betsec"></section>
 
@@ -232,7 +241,7 @@ const $ = (s) => document.querySelector(s);
 const REFRESH_MS = 10000;
 const STALE_DAYS = 120;
 const SETTLED_SHOWN = 12;
-const S = { data: null, tour: "all", status: "all", fresh: "all", minedge: 0, q: "", only: null,
+const S = { data: null, sizing: null, seq: 0, tour: "all", status: "all", fresh: "all", minedge: 0, q: "", only: null,
             sort: { key: "edge", dir: -1 }, open: new Set(), allSettled: false, timer: null, fetching: false };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -365,8 +374,10 @@ function renderBets(rows) {
   const bets = rows.filter((r) => r.bet && passes(r, true));
   const sec = $("#betsec");
   if (!bets.length) {
-    const pol = S.data.watch ? S.data.watch.policy : null;
-    const why = pol ? `The policy needs fresh ratings${pol.in_play ? "" : ", a match not yet started"} and an edge that survives the spread and fees.` : "";
+    const pol = S.data.sizing || (S.data.watch ? S.data.watch.policy : null);
+    const small = rows.filter((r) => r.decision && r.decision.reason.startsWith("under one contract")).length;
+    const why = pol ? `The policy needs fresh ratings${pol.in_play ? "" : ", a match not yet started"} and an edge that survives the spread and fees.`
+      + (small ? ` ${small} with an edge too small for one contract at a $${pol.bankroll} bankroll: raise the bankroll to see ${small > 1 ? "them" : "it"} sized.` : "") : "";
     sec.innerHTML = `<h2>Flagged bets <span class="n">0</span></h2><div class="empty">No bet flagged right now. ${esc(why)}</div>`;
     return;
   }
@@ -377,7 +388,7 @@ function renderBets(rows) {
       <div class="who">${esc(on.name)}</div>
       <div class="vs">vs ${esc(other.name)}</div>
       <div class="nums">
-        <span class="k">Model</span><span class="k">Ask</span><span class="k">Stake</span><span class="k">EV</span>
+        <span class="k" title="Win probability the bet is sized on: the model blended with the market by the model weight">Win prob</span><span class="k">Ask</span><span class="k">Stake</span><span class="k">EV</span>
         <span class="v">${pct(dc.p_side)}</span><span class="v">${cents(dc.ask)}</span>
         <span class="v">${dc.contracts} · ${money(dc.cost)}</span><span class="v">${money(dc.ev)}</span>
       </div>
@@ -575,6 +586,7 @@ function render() {
   }
   const rows = d.matches.map(derive);
   renderHealth(d);
+  renderSizing();
   renderKpis(rows);
   renderBets(rows);
   renderTable(rows);
@@ -627,20 +639,63 @@ $("#tbl tbody").addEventListener("click", (e) => {
 });
 window.addEventListener("hashchange", () => { load(); render(); });
 
-async function refresh() {
-  if (S.fetching) return;
-  S.fetching = true;
+// ---- sizing: the viewer's bankroll / Kelly / model weight, kept in this browser only.
+// The server re-decides every match with them on the poll's order books; the watch and
+// its phone alerts keep the watch's own policy.
+const SIZE_KEY = "advantage.sizing";
+try { S.sizing = JSON.parse(localStorage.getItem(SIZE_KEY) || "null"); } catch (e) { S.sizing = null; }
+function storeSizing() {
   try {
-    const res = await fetch("/api/live", { cache: "no-store" });
+    if (S.sizing) localStorage.setItem(SIZE_KEY, JSON.stringify(S.sizing));
+    else localStorage.removeItem(SIZE_KEY);
+  } catch (e) { /* private mode: settings last for this tab only */ }
+}
+function watchPolicy() { return S.data && S.data.watch ? S.data.watch.policy : null; }
+function renderSizing() {
+  const pol = watchPolicy(), z = S.data ? S.data.sizing : null;
+  if (!pol || !z) return;
+  const cur = S.sizing || { bankroll: pol.bankroll, kelly: pol.kelly, mw: pol.model_weight };
+  for (const [id, v] of [["#bankroll", cur.bankroll], ["#kelly", cur.kelly], ["#mw", cur.mw]]) {
+    if (document.activeElement !== $(id)) $(id).value = v;
+  }
+  $("#sizereset").hidden = !S.sizing;
+  $("#sizenote").textContent = z.custom
+    ? `Your sizing (this browser only). Phone alerts use the watch's: $${pol.bankroll}, Kelly ${pol.kelly}, model weight ${pol.model_weight}.`
+    : "The watch's sizing, also used for phone alerts.";
+}
+let sizeTimer = null;
+function onSizing() {
+  const pol = watchPolicy();
+  const v = { bankroll: +$("#bankroll").value, kelly: +$("#kelly").value, mw: +$("#mw").value };
+  if (!(v.bankroll >= 1 && v.kelly > 0 && v.kelly <= 1 && v.mw >= 0 && v.mw <= 1)) return;
+  const same = pol && v.bankroll === pol.bankroll && v.kelly === pol.kelly && v.mw === pol.model_weight;
+  S.sizing = same ? null : v;
+  storeSizing();
+  clearTimeout(sizeTimer);
+  sizeTimer = setTimeout(refresh, 350);
+}
+for (const id of ["#bankroll", "#kelly", "#mw"]) $(id).addEventListener("input", onSizing);
+$("#sizereset").addEventListener("click", () => {
+  S.sizing = null;
+  storeSizing();
+  for (const id of ["#bankroll", "#kelly", "#mw"]) $(id).blur();
+  refresh();
+});
+
+async function refresh() {
+  const seq = ++S.seq;                     // a newer request (settings changed) wins
+  const q = S.sizing ? `?bankroll=${S.sizing.bankroll}&kelly=${S.sizing.kelly}&mw=${S.sizing.mw}` : "";
+  try {
+    const res = await fetch("/api/live" + q, { cache: "no-store" });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    if (seq !== S.seq) return;
     S.data = body;
     render();
   } catch (err) {
+    if (seq !== S.seq) return;
     $("#hdot").className = "dot bad";
     $("#htext").textContent = `Can't load live data: ${err.message}. Retrying…`;
-  } finally {
-    S.fetching = false;
   }
 }
 function schedule() {
