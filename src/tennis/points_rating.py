@@ -789,6 +789,35 @@ def matchup(state: PointsState, a: int, b: int, tour: str, surface: str | None, 
     return xa, xb, va, vb
 
 
+def player_ratings(state: PointsState, i: int, tour: str, surface: str | None, on: str) -> dict:
+    """One player's serve and return ratings on ISO date `on`, as matchup() uses them: the
+    overall rating plus the run's surface blend of the surface deviation, with SDs (variance
+    grown by inactivity). Logit units relative to `base`, the (tour, surface) serve-point
+    logit of an average server against an average returner. `seen` is False for a new player."""
+    p, day = state.params, date.fromisoformat(on).toordinal()
+    seen = i in state.serve
+    if seen:
+        el = max(day - state.last[i], 0)
+        s, r = state.serve[i], state.ret[i]
+        vs, vr = min(state.vs[i] + p.q * el, p.v_init), min(state.vr[i] + p.q * el, p.v_init)
+    else:
+        s = r = -p.init_offset
+        vs = vr = p.v_init
+    ds = dr = dvs = dvr = 0.0
+    k = (i, surface)
+    if surface is not None:
+        if k in state.sserve:
+            el = max(day - state.slast[k], 0)
+            ds, dr = state.sserve[k], state.sret[k]
+            dvs, dvr = min(state.svs[k] + p.q_surf * el, p.surf_var), min(state.svr[k] + p.q_surf * el, p.surf_var)
+        else:
+            dvs = dvr = p.surf_var
+    base = state.base.get((tour, surface), BASE_INIT.get(tour, 0.4))
+    return {"serve": s + p.blend * ds, "ret": r + p.blend * dr,
+            "serve_sd": math.sqrt(vs + p.blend * dvs), "ret_sd": math.sqrt(vr + p.blend * dvr),
+            "base": base, "seen": seen}
+
+
 def win_probability(state: PointsState, xa: float, xb: float, va: float, vb: float,
                     best_of: int = 3, final: str = "tb") -> float:
     """P(A wins) exactly as the model predicts it (Markov roll-up + uncertainty shrink)."""

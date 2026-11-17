@@ -12,6 +12,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import date
 from array import array
 from pathlib import Path
 
@@ -116,6 +117,43 @@ class PredictorTest(unittest.TestCase):
     def test_is_a_predictor(self):
         self.assertIsInstance(self.pp, Predictor)
         self.assertEqual(self.pp.name, "points_v1/run1")
+
+    def test_prematch_ratings_rebuild_the_logits(self):
+        """detail rating_a / rating_b are the serve and return ratings matchup() combines:
+        x_a = base + serve_a - ret_b + ctx_a; in play they stay the pre-match ones."""
+        d = self.pp.predict(self.q).detail
+        ra, rb = d["rating_a"], d["rating_b"]
+        self.assertAlmostEqual(d["x_a"], d["base"] + ra["serve"] - rb["ret"] + d["ctx_a"], places=12)
+        self.assertAlmostEqual(d["x_b"], d["base"] + rb["serve"] - ra["ret"] + d["ctx_b"], places=12)
+        self.assertAlmostEqual(d["v_a"], ra["serve_sd"] ** 2 + rb["ret_sd"] ** 2, places=12)
+        self.assertTrue(ra["seen"] and rb["seen"])
+        self.assertEqual(d["p_sd_pre"], d["p_sd"])
+        live = self.pp.predict(MatchQuery(**{**self.q.__dict__, "live": live_from_score("6-1 5-1", "40-0", True,
+                                                                                         serve_a=(40, 50), serve_b=(20, 45))}))
+        self.assertTrue(live.in_play)
+        self.assertEqual((live.detail["rating_a"], live.detail["p_sd_pre"]), (ra, d["p_sd"]))
+        self.assertNotEqual(live.detail["p_sd"], d["p_sd"])
+        new = self.pp.predict(MatchQuery(**{**self.q.__dict__, "player_b": 999})).detail
+        self.assertFalse(new["rating_b"]["seen"])
+        self.assertIsNone(d["ref"])                                      # no player index: no reference
+
+    def test_tour_reference_and_ranks(self):
+        st = self.pp.model.state
+        rated = sorted(st.serve)
+        info = {pid: ("atp", f"P{pid}", 1, "2020-01-01") for pid in rated}
+        info[rated[-1]] = ("wta", "W", 1, "2020-01-01")                  # another tour: left out
+        pp = PointsPredictor(ModelState(**{**self.pp.model.__dict__, "players": ({}, {}, info)}))
+        d = pp.predict(self.q).detail
+        pop = [i for i in rated[:-1] if st.last[i] >= date(2020, 3, 2).toordinal() - 365]
+        self.assertEqual(d["ref"]["n"], len(pop))
+        self.assertAlmostEqual(d["ref"]["serve"], sum(st.serve[i] for i in pop) / len(pop), places=12)
+        self.assertAlmostEqual(d["ref"]["ret"], sum(st.ret[i] for i in pop) / len(pop), places=12)
+        best = max(pop, key=lambda i: st.serve[i])
+        rank = pp._ranks(pp.reference("atp", d["rating_day"]), best)[0]
+        self.assertEqual(rank, 1)
+        for side in ("rating_a", "rating_b"):
+            self.assertTrue(1 <= d[side]["serve_rank"] <= len(pop) and 1 <= d[side]["ret_rank"] <= len(pop))
+        self.assertEqual(pp._ranks(pp.reference("atp", d["rating_day"]), 999), (None, None))
 
     def test_symmetric(self):
         a = self.pp.predict(self.q).p_a

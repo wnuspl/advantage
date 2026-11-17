@@ -142,3 +142,16 @@ CREATE TABLE IF NOT EXISTS alert (
   detail     TEXT NOT NULL DEFAULT ''          -- why suppressed / failed
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_alert_event ON alert (event, poll_id);
+
+-- Each match's pre-match model block (added 2026-11-17): the predictor's pre-match detail
+-- (serve / return ratings going into the match, serve-point logits, context offsets,
+-- pre-match p and SD) from the last poll before the match went live, or from the first
+-- poll that saw it if it was already live then. Written by the recorder, read by the
+-- live page's match panel.
+CREATE TABLE IF NOT EXISTS prematch (
+  event    TEXT PRIMARY KEY REFERENCES event(event),
+  poll_id  INTEGER NOT NULL REFERENCES poll(poll_id),
+  model    TEXT NOT NULL,                  -- Prediction.model
+  status   TEXT NOT NULL,                  -- the snapshot status it was taken at
+  detail   TEXT NOT NULL                   -- JSON: recorder.PREMATCH_KEYS of Prediction.detail
+) STRICT;

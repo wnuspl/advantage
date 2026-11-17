@@ -21,6 +21,7 @@ The view:
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import zlib
 from dataclasses import asdict
@@ -199,3 +200,154 @@ def live_view(con: sqlite3.Connection, now: datetime | None = None, *, history_h
 
 def _r(x, nd: int = 4):
     return None if x is None else round(x, nd)
+
+
+def _round(v, nd: int = 4):
+    if isinstance(v, float):
+        return round(v, nd)
+    if isinstance(v, dict):
+        return {k: _round(x, nd) for k, x in v.items()}
+    return v
+
+
+# ---------------------------------------------------------------------------- one match
+
+EVENT_RE = re.compile(r"^[A-Z0-9][A-Z0-9._-]{2,79}$")      # Kalshi event tickers: KXATPMATCH-26NOV16ALCTIA
+
+
+def valid_event(event: str | None) -> bool:
+    return bool(event) and EVENT_RE.match(event) is not None
+
+
+def set_scores(score: str | None, n: int = 99) -> list[tuple[int, int]]:
+    """The leading 'g-g' tokens of a score string ('6-7 6-2 0-0 *A serving', or a settlement's
+    '6-7 6-2 5-7'), at most n: with n = sets played, the completed sets, A first."""
+    out = []
+    for tok in (score or "").split():
+        m = re.fullmatch(r"(\d+)-(\d+)", tok)
+        if m is None:
+            break
+        out.append((int(m[1]), int(m[2])))
+    return out[:n]
+
+
+def _tb_set(ga: int, gb: int) -> bool:
+    """A completed set that ended in a tiebreak (7-6) or was a match tiebreak (1-0, 10-8)."""
+    return (max(ga, gb) == 7 and min(ga, gb) == 6) or max(ga, gb) == 1 or min(ga, gb) >= 8
+
+
+def score_steps(prev: dict, cur: dict) -> list[dict]:
+    """Set ends and breaks of serve between two consecutive recorded scores (dicts with
+    sets_a/b, games_a/b, a_serving, score; `cur` may carry `done`, the completed sets, instead
+    of a score string). Games alternate servers, so over k games starting with prev's server
+    the breaks by a side are at least (games it won) - (games it served): exact when k = 1,
+    a lower bound (`exact` False) when polls missed games. Nothing is guessed when the step
+    is unreadable (score went back, a set skipped, a tiebreak among missed games, a serve
+    order that does not add up); tiebreak games are never breaks."""
+    ps, cs = prev["sets_a"] + prev["sets_b"], cur["sets_a"] + cur["sets_b"]
+    if cs < ps or cs > ps + 1:
+        return []
+    marks = []
+    tb = False
+    if cs == ps:
+        na, nb = cur["games_a"] - prev["games_a"], cur["games_b"] - prev["games_b"]
+        if na < 0 or nb < 0:
+            return []
+    else:
+        done = cur.get("done") or set_scores(cur.get("score"), cs)
+        if len(done) < cs:
+            return []
+        fa, fb = done[cs - 1]
+        if fa < prev["games_a"] or fb < prev["games_b"]:
+            return []
+        side = "a" if cur["sets_a"] > prev["sets_a"] else "b"
+        marks.append({"kind": "set", "side": side, "set": cs, "games": [fa, fb]})
+        tb = _tb_set(fa, fb)
+        na = fa - prev["games_a"] + cur["games_a"] - (1 if tb and side == "a" else 0)
+        nb = fb - prev["games_b"] + cur["games_b"] - (1 if tb and side == "b" else 0)
+    k = na + nb
+    server = prev.get("a_serving")
+    if k <= 0 or server is None or tb or "tiebreak" in (prev.get("score") or ""):
+        return marks
+    if cur.get("a_serving") is not None and bool(cur["a_serving"]) != (bool(server) != (k % 2 == 1)):
+        return marks
+    a_srv = (k + 1) // 2 if server else k // 2
+    for side, won, own in (("a", na, a_srv), ("b", nb, k - a_srv)):
+        if won - own > 0:
+            marks.append({"kind": "break", "side": side, "n": won - own, "exact": k == 1})
+    return marks
+
+
+def match_marks(polls: list[dict], final_score: str | None = None) -> list[dict]:
+    """Breaks of serve and set ends over a match's polls (oldest first; those without a
+    score are passed over). final_score (the settlement's, A first) adds the last set end
+    when the feed stopped before it. Each mark: {i (index into polls), as_of, kind, side, ...}."""
+    out, prev = [], None
+    for i, p in enumerate(polls):
+        if p.get("sets_a") is None or p.get("games_a") is None:
+            continue
+        if prev is not None:
+            got = score_steps(prev, p)
+            if not got and (p["sets_a"] + p["sets_b"], p["games_a"] + p["games_b"]) < \
+                    (prev["sets_a"] + prev["sets_b"], prev["games_a"] + prev["games_b"]):
+                continue            # a feed glitch went backwards: keep the earlier score as the base
+            out += [{"i": i, "as_of": p["as_of"], **m} for m in got]
+        prev = p
+    if final_score and prev is not None:
+        done = set_scores(final_score)
+        sa = sum(1 for a, b in done if a > b)
+        if len(done) == prev["sets_a"] + prev["sets_b"] + 1:
+            last = len(polls) - 1
+            cur = {"sets_a": sa, "sets_b": len(done) - sa, "games_a": 0, "games_b": 0, "a_serving": None,
+                   "done": done}
+            out += [{"i": last, "as_of": polls[last]["as_of"], **m} for m in score_steps(prev, cur)]
+    return out
+
+
+MATCH_SNAP = ("status", "p_model", "p_market", "score", "sets_a", "sets_b", "games_a", "games_b", "pts_a",
+              "pts_b", "a_serving", "serve_a_won", "serve_a_played", "serve_b_won", "serve_b_played", "in_play")
+
+
+def match_view(con: sqlite3.Connection, event: str, now: datetime | None = None) -> dict | None:
+    """Everything the live page's match panel shows for one event, or None if live.db has
+    never seen it: every poll that listed it (not thinned), the break / set-end marks, the
+    pre-match block (each player's ratings going into the match as the predictor recorded
+    them, the last pre-match model and market) and the settlement, if any."""
+    now = now or datetime.now(timezone.utc)
+    e = con.execute("SELECT * FROM event WHERE event = ?", (event,)).fetchone()
+    if e is None:
+        return None
+    cols = {r[1] for r in con.execute("PRAGMA table_info(snapshot)")}
+    sd = "s.p_sd" if "p_sd" in cols else "NULL AS p_sd"
+    polls = []
+    for r in con.execute(
+            f"""SELECT p.as_of, {sd}, {', '.join('s.' + c for c in MATCH_SNAP)} FROM snapshot s
+                JOIN poll p USING (poll_id) WHERE s.event = ? ORDER BY s.poll_id""", (event,)):
+        polls.append({k: _round(r[k]) for k in r.keys()})
+    st = con.execute("SELECT * FROM settlement WHERE event = ?", (event,)).fetchone()
+    started = next((i for i, p in enumerate(polls) if p["status"] in ("live", "interrupted")), None)
+    upto = len(polls) if started is None else started
+    last_pre = next((p for p in reversed(polls[:upto]) if p["status"] == "not_started"), None)
+    has_pm = con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'prematch'").fetchone()
+    pm = con.execute("SELECT * FROM prematch WHERE event = ?", (event,)).fetchone() if has_pm else None
+    pre = {k: (last_pre or {}).get(k) for k in ("p_model", "p_market", "p_sd", "as_of")}
+    pre["ratings"] = None
+    if pm is not None:
+        det = _round(json.loads(pm["detail"]))
+        pre["ratings"] = {"model": pm["model"], "taken_at": pm["status"], **det}
+        if pre["p_sd"] is None:
+            pre["p_sd"] = det.get("p_sd_pre")
+    marks = []
+    if started is not None:
+        marks = [{**m, "i": m["i"] + started}
+                 for m in match_marks(polls[started:], st["final_score"] if st else None)]
+    return {"now": _iso(now), "event": event, "series": e["series"],
+            "tour_label": TOUR_LABEL.get(e["series"], e["series"]), "title": e["title"],
+            "tournament": e["tournament"], "start": e["start"], "first_seen": e["first_seen"],
+            "last_seen": e["last_seen"], "a": {"name": e["a_name"]}, "b": {"name": e["b_name"]},
+            "status": "settled" if st else (polls[-1]["status"] if polls else None),
+            "started_at": None if started is None else polls[started]["as_of"],
+            "polls": polls, "marks": marks, "pre": pre,
+            "settlement": None if st is None else {
+                "winner": st["winner"], "final_score": st["final_score"], "match_status": st["match_status"],
+                "seen_at": st["seen_at"]}}

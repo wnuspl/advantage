@@ -46,6 +46,22 @@ FINAL_LIVE = {"status": "closed", "match_status": "ended", "winner": C1, "compet
               "competitor2_round_scores": [{"outcome": "loser", "score": 6}, {"outcome": "loser", "score": 4}]}
 
 
+class Rated:
+    """Detail shaped like PointsPredictor's: pre-match ratings plus, in play, *_live keys."""
+    name = "rated"
+
+    def __init__(self, serve=0.1):
+        self.serve = serve
+
+    def predict(self, q):
+        g = {"serve": self.serve, "ret": -0.05, "serve_sd": 0.1, "ret_sd": 0.12, "seen": True}
+        det = {"rating_a": g, "rating_b": g, "base": 0.4, "x_a": 0.5, "x_b": 0.45, "p_sd": 0.05, "p_sd_pre": 0.05,
+               "p_prematch": 0.6, "last_a": "2026-11-01", "last_b": "2026-11-02"}
+        if q.live is not None:
+            det.update(p_sd=0.02, x_a_live=0.7)
+        return Prediction(p_a=0.6, p_raw=0.6, model=self.name, in_play=q.live is not None, detail=det)
+
+
 class RecorderTest(NoNetwork):
     def setUp(self):
         super().setUp()
@@ -69,6 +85,21 @@ class RecorderTest(NoNetwork):
                          (self.pull.as_of, self.pull.events, self.pull.live, self.pull.books))
         again = snapshots(back, Const(), resolver())
         self.assertEqual([r.to_json() for r in again], [r.to_json() for r in rows])
+
+    def test_prematch_block(self):
+        """Pre-match detail: refreshed while the match has not started, frozen once it has;
+        a match first seen live keeps that poll's pre-match keys only; placeholders skipped."""
+        self.record(self.pull, FixedPredictor(0.5))
+        self.assertEqual(self.rec.con.execute("SELECT COUNT(*) FROM prematch").fetchone()[0], 0)
+        self.record(self.pull, Rated(0.1))
+        self.record(replace(self.pull, as_of="2026-11-15T23:00:00+00:00"), Rated(0.2))
+        pm = {r["event"]: r for r in self.rec.con.execute("SELECT * FROM prematch")}
+        alc, gg = json.loads(pm[ALC]["detail"]), json.loads(pm[GG]["detail"])
+        self.assertEqual((pm[ALC]["status"], alc["rating_a"]["serve"]), ("not_started", 0.2))   # updated
+        self.assertEqual((pm[GG]["status"], gg["rating_a"]["serve"]), ("live", 0.1))           # first kept
+        self.assertEqual(gg["p_sd_pre"], 0.05)
+        self.assertNotIn("x_a_live", gg)
+        self.assertNotIn("p_sd", gg)
 
     def test_blobs_deduplicate(self):
         self.record(self.pull)

@@ -24,7 +24,12 @@ state with a `problem`, or no known server, gives the pre-match probability with
 in_play=False and the reason in notes: callers must not act on it as an in-play price.
 
 `detail["p_sd"]`: the SD of the output probability under the ratings' own variances
-(p_spread; in play, the form-updated variances), for display as the model's certainty.
+(p_spread; in play, the form-updated variances), for display as the model's certainty;
+`p_sd_pre` keeps the pre-match one. `rating_a` / `rating_b`: each player's serve and return
+rating going into the match (points_rating.player_ratings, logits relative to `base`), never
+touched by the in-play update; with a player index, each carries its rank (1 = best overall
+serve / return) among the tour's players rated in the year before the match, and `ref` holds that
+population's mean ratings (the ratings are not centred: an average player is not 0).
 
 `stale`: a player's last rated match is more than 120 days before the match (or there is
 none). A query dated before the latest replayed edition gets a note: its ratings already
@@ -36,6 +41,7 @@ calibration quarter.
 """
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
 import math
@@ -55,6 +61,8 @@ from .predictor import MatchQuery, Prediction
 ROOT = models_db.ROOT
 CACHE_DIR = ROOT / "models" / "engine"
 STALE_DAYS = 120
+REF_DAYS = 365          # the tour reference population: players rated in the year before the match
+RATING_KEYS = ("serve", "ret", "serve_sd", "ret_sd", "seen", "serve_rank", "ret_rank")
 CACHE_VERSION = b"engine-points-cache-v1"
 CODE = ("points_rating.py", "context.py", "markov.py", "matches.py", "calibrate.py",
         "engine/predict.py", "engine/players.py", "engine/state.py")
@@ -141,6 +149,7 @@ class PointsPredictor:
         self.name = f"{model.model_id}/{tag}" + (f"@{model.as_of}" if model.as_of else "") \
             + ("" if calibrated else "/raw")
         self._players = None
+        self._ref: dict = {}
 
     # ------------------------------------------------------------------ loading
 
@@ -194,6 +203,40 @@ class PointsPredictor:
 
     # ------------------------------------------------------------------ prediction
 
+    def reference(self, tour: str, on: str) -> dict | None:
+        """The tour's rated population on ISO date `on`: players of `tour` (engine.players
+        index) rated in the REF_DAYS before it. Mean overall serve and return ratings (the
+        ratings are not centred: an average player is not 0) and the sorted values for ranks.
+        None without a player index."""
+        if self.model.players is None:
+            return None
+        key = (tour, on)
+        if key not in self._ref:
+            st, info = self.model.state, self.model.players[2]
+            lo = date.fromisoformat(on).toordinal() - REF_DAYS
+            hi = date.fromisoformat(on).toordinal()
+            pids = [i for i in st.serve if lo <= st.last[i] <= hi and (info.get(i) or (None,))[0] == tour]
+            if not pids:
+                self._ref[key] = None
+            else:
+                s = sorted(st.serve[i] for i in pids)
+                r = sorted(st.ret[i] for i in pids)
+                self._ref[key] = {"serve": sum(s) / len(s), "ret": sum(r) / len(r), "n": len(pids),
+                                  "sorted_serve": s, "sorted_ret": r}
+            if len(self._ref) > 64:
+                self._ref.pop(next(iter(self._ref)))
+        return self._ref[key]
+
+    def _ranks(self, ref: dict, pid: int) -> tuple[int | None, int | None]:
+        """1 = best overall serve / return rating in the reference population (None if the
+        player is not in it, e.g. new or inactive)."""
+        st = self.model.state
+        if pid not in st.serve:
+            return None, None
+        n = ref["n"]
+        return (n - bisect.bisect_right(ref["sorted_serve"], st.serve[pid]) + 1,
+                n - bisect.bisect_right(ref["sorted_ret"], st.ret[pid]) + 1)
+
     def prematch(self, q: MatchQuery) -> dict:
         """The pre-match pieces: logits, variances, context offsets, p_raw, p_cal, alpha."""
         md, p = self.model, self.model.params
@@ -221,7 +264,17 @@ class PointsPredictor:
             pr = points_rating.win_probability(st, a, b, va, vb, q.best_of, q.final)
             return calibrate.apply(pr, alpha) if cal else pr
         p_sd = p_spread(f, xa, xb, va, vb)
+        ra = points_rating.player_ratings(st, a, q.tour, surface, rating_day)
+        rb = points_rating.player_ratings(st, b, q.tour, surface, rating_day)
+        ref = self.reference(q.tour, rating_day)
+        if ref is not None:
+            for pid, rr in ((a, ra), (b, rb)):
+                rr["serve_rank"], rr["ret_rank"] = self._ranks(ref, pid)
         return {"x_a": xa, "x_b": xb, "v_a": va, "v_b": vb, "ctx_a": oa, "ctx_b": ob, "p_sd": p_sd,
+                "p_sd_pre": p_sd, "base": ra["base"],
+                "ref": None if ref is None else {"serve": ref["serve"], "ret": ref["ret"], "n": ref["n"]},
+                "rating_a": {k: ra[k] for k in RATING_KEYS if k in ra},
+                "rating_b": {k: rb[k] for k in RATING_KEYS if k in rb},
                 "serve_a": _sig(xa), "serve_b": _sig(xb), "p_raw": p_raw, "p_prematch": p_cal,
                 "alpha": alpha, "rating_day": rating_day, "surface": surface,
                 "best_of": q.best_of, "final": q.final}

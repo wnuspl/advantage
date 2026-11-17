@@ -12,6 +12,8 @@ Routes:
     /api/live             engine.livefeed.live_view(live.db) as JSON (recomputed at most every few s);
                           ?bankroll=&kelly=&mw= re-size the bets for the viewer (read-only:
                           nothing is stored, the watch and its alerts keep their own policy)
+    /api/match?event=<ticker>   engine.livefeed.match_view(): one match's every poll, its
+                          break / set-end marks and pre-match block (400 bad ticker, 404 unseen)
     /data/index.json      the ratings export's index (weeks, fields, run)
     /data/players.json
     /data/weeks/<monday>.json.gz   served as JSON with Content-Encoding: gzip
@@ -108,8 +110,37 @@ class LiveCache:
             return body
 
 
+class MatchCache:
+    """livefeed.match_view() of one event, recomputed when older than `ttl` seconds; at most
+    `keep` events cached. get() returns None for an event live.db has never seen."""
+
+    def __init__(self, path: Path, ttl: float = 5.0, keep: int = 32):
+        self.path, self.ttl, self.keep = Path(path), ttl, keep
+        self.lock = threading.Lock()
+        self.cache: dict[str, tuple[float, bytes | None]] = {}
+
+    def get(self, event: str) -> bytes | None:
+        if not livefeed.valid_event(event):
+            raise ValueError(event)
+        with self.lock:
+            hit = self.cache.get(event)
+            if hit and time.monotonic() - hit[0] <= self.ttl:
+                return hit[1]
+            con = livefeed.connect(self.path)
+            try:
+                v = livefeed.match_view(con, event)
+            finally:
+                con.close()
+            body = None if v is None else json.dumps(v, separators=(",", ":")).encode("utf-8")
+            if len(self.cache) >= self.keep and event not in self.cache:
+                self.cache.pop(min(self.cache, key=lambda k: self.cache[k][0]))
+            self.cache[event] = (time.monotonic(), body)
+            return body
+
+
 def make_handler(data_dir: Path, quiet: bool = False, live_db: Path | None = None, web: Path = WEB):
     live = LiveCache(live_db) if live_db is not None else None
+    match = MatchCache(live_db) if live_db is not None else None
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "advantage/1"
@@ -133,6 +164,8 @@ def make_handler(data_dir: Path, quiet: bool = False, live_db: Path | None = Non
         def _serve(self, body: bool):
             if urlsplit(self.path).path == "/api/live":
                 return self._live(body)
+            if urlsplit(self.path).path == "/api/match":
+                return self._match(body)
             hit = resolve(data_dir, self.path, web)
             if hit is None or not hit[0].is_file():
                 if self.path.startswith("/data/index.json"):
@@ -172,6 +205,22 @@ def make_handler(data_dir: Path, quiet: bool = False, live_db: Path | None = Non
             except Exception as e:                     # locked or mid-migration: say so, the page retries
                 msg = json.dumps({"error": f"live.db unreadable: {type(e).__name__}: {e}"})
                 return self._send(HTTPStatus.SERVICE_UNAVAILABLE, "application/json", msg.encode(), body)
+            self._send(HTTPStatus.OK, "application/json; charset=utf-8", data, body, {"Cache-Control": "no-store"})
+
+        def _match(self, body: bool):
+            def err(status, text):
+                self._send(status, "application/json", json.dumps({"error": text}).encode(), body)
+            if match is None or not match.path.is_file():
+                return err(HTTPStatus.SERVICE_UNAVAILABLE, "no live.db: the Kalshi watch (scripts/watch.py run) has not run here")
+            ev = parse_qs(urlsplit(self.path).query).get("event", [""])[-1]
+            if not livefeed.valid_event(ev):
+                return err(HTTPStatus.BAD_REQUEST, "bad event: a Kalshi event ticker, e.g. KXATPMATCH-26NOV16ALCTIA")
+            try:
+                data = match.get(ev)
+            except Exception as e:
+                return err(HTTPStatus.SERVICE_UNAVAILABLE, f"live.db unreadable: {type(e).__name__}: {e}")
+            if data is None:
+                return err(HTTPStatus.NOT_FOUND, f"{ev}: not in live.db")
             self._send(HTTPStatus.OK, "application/json; charset=utf-8", data, body, {"Cache-Control": "no-store"})
 
         def log_message(self, fmt, *args):

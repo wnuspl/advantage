@@ -130,6 +130,7 @@ class Recorder:
                 self._event(s, pull.as_of)
                 self.con.execute(f"INSERT INTO snapshot ({', '.join(SNAP_COLS)}) VALUES "
                                  f"({', '.join('?' * len(SNAP_COLS))})", _snapshot_row(pid, s))
+                self._prematch(pid, s)
             for d in decisions:
                 sz = d.sizing
                 self.con.execute(
@@ -150,6 +151,26 @@ class Recorder:
                  milestone = COALESCE(excluded.milestone, event.milestone)""",
             (e.event, e.series, e.tour, e.title, s.tournament or None, e.start, e.a.ticker, e.b.ticker, e.a.name,
              e.b.name, e.a.comp, e.b.comp, s.milestone, as_of, as_of))
+
+    def _prematch(self, poll_id: int, s: MarketSnapshot) -> None:
+        """Keep the latest pre-match detail while the match has not started; once it has,
+        the first one seen stays (a match first seen live keeps that poll's, whose pre-match
+        fields are still pre-match: the predictor's in-play update goes into other keys)."""
+        pr = s.prediction
+        det = pr.detail if pr else {}
+        if not det or det.get("placeholder") or "rating_a" not in det:
+            return
+        blob = json.dumps({k: det[k] for k in PREMATCH_KEYS if k in det}, ensure_ascii=False)
+        row = (s.event.event, poll_id, pr.model, s.status, blob)
+        if s.status == "not_started":
+            self.con.execute(
+                """INSERT INTO prematch (event, poll_id, model, status, detail) VALUES (?,?,?,?,?)
+                   ON CONFLICT (event) DO UPDATE SET poll_id = excluded.poll_id, model = excluded.model,
+                     status = excluded.status, detail = excluded.detail
+                   WHERE prematch.status = 'not_started'""", row)
+        else:
+            self.con.execute("INSERT OR IGNORE INTO prematch (event, poll_id, model, status, detail) "
+                             "VALUES (?,?,?,?,?)", row)
 
     def record_alerts(self, poll_id: int, alerts) -> None:
         """engine.alerts.Alert list for one poll."""
@@ -237,6 +258,13 @@ SNAP_COLS = ("poll_id", "event", "status", "skip", "p_market", "ask_a", "ask_b",
              "serve_b_played", "live_problem", "p_model", "p_raw", "in_play", "stale", "a_pid", "b_pid",
              "a_resolved", "b_resolved", "a_last_rated", "b_last_rated", "a_stale_days", "b_stale_days", "day",
              "surface", "surface_from", "best_of", "best_of_from", "final", "edition_id", "p_sd")
+
+
+# Prediction.detail keys that are pre-match by construction (engine.predict.prematch):
+# the in-play update writes *_live keys and overwrites only p_sd, so p_sd_pre is kept.
+PREMATCH_KEYS = ("rating_a", "rating_b", "base", "ref", "x_a", "x_b", "v_a", "v_b", "ctx_a", "ctx_b", "serve_a",
+                 "serve_b", "p_raw", "p_prematch", "p_sd_pre", "alpha", "rating_day", "surface", "best_of",
+                 "final", "last_a", "last_b")
 
 
 def _days(day: str, last: str | None) -> int | None:
