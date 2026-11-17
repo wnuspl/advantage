@@ -75,7 +75,7 @@ label.chk { display: inline-flex; align-items: center; gap: 6px; color: var(--te
 .bet { background: var(--panel); border: 1px solid var(--accent); border-left-width: 4px; border-radius: 8px; padding: 12px 14px; }
 .bet .who { font-size: 17px; font-weight: 680; }
 .bet .vs { color: var(--muted); font-size: 13px; }
-.bet .nums { display: grid; grid-template-columns: repeat(4, auto); gap: 2px 14px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.bet .nums { display: grid; grid-template-columns: repeat(5, auto); gap: 2px 14px; margin-top: 8px; font-variant-numeric: tabular-nums; }
 .bet .nums .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .bet .nums .v { font-weight: 650; }
 .empty { color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13px; }
@@ -388,9 +388,15 @@ function renderBets(rows) {
       <div class="who">${esc(on.name)}</div>
       <div class="vs">vs ${esc(other.name)}</div>
       <div class="nums">
-        <span class="k" title="Win probability the bet is sized on: the model blended with the market by the model weight">Win prob</span><span class="k">Ask</span><span class="k">Stake</span><span class="k">EV</span>
+        <span class="k" title="Win probability the bet is sized on: the model blended with the market by the model weight">Win prob</span>
+        <span class="k" title="Cheapest price to buy this player winning (YES on him or NO on his opponent); a contract pays $1 if he wins">Ask</span>
+        <span class="k" title="Contracts to buy, each paying $1 if he wins">Buy</span>
+        <span class="k" title="Total price of those contracts (deeper ones may fill a cent or two above the ask), plus Kalshi's fee">Cost</span>
+        <span class="k" title="Expected profit after fees, at the win probability on the left">EV</span>
         <span class="v">${pct(dc.p_side)}</span><span class="v">${cents(dc.ask)}</span>
-        <span class="v">${dc.contracts} · ${money(dc.cost)}</span><span class="v">${money(dc.ev)}</span>
+        <span class="v">${dc.contracts} × $1</span>
+        <span class="v">${money(dc.cost)}<span class="meta" style="font-weight:400"> + ${money(dc.fees)} fee</span></span>
+        <span class="v">${money(dc.ev)}</span>
       </div>
       <div class="meta" style="margin-top:6px">Confidence ${r.conf == null ? "–" : pct(r.conf)} · edge ${r.edge == null ? "–" : (100 * r.edge).toFixed(1)} pts vs mid</div>
     </div>`;
