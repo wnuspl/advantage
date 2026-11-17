@@ -5,6 +5,8 @@
   "use strict";
   const PAGES = [
     { href: "/live", match: ["/", "/live", "/live.html", "/index.html"], label: "Live markets" },
+    { href: "/scorecard", match: ["/scorecard", "/scorecard.html"], label: "Scorecard" },
+    { href: "/pnl", match: ["/pnl", "/pnl.html"], label: "P&L" },
     { href: "/ratings", match: ["/ratings", "/ratings.html"], label: "Ratings" },
   ];
   const here = location.pathname;
@@ -18,7 +20,9 @@
   .topnav a.tab[aria-current="page"] { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
   .topnav .note { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
   .topnav a.tab { white-space: nowrap; }
-  @media (max-width: 560px) { .topnav .note { display: none; } .topnav .brand { margin-right: 6px; } }`;
+  @media (max-width: 560px) { .topnav .note { display: none; } .topnav .brand { margin-right: 6px; }
+    .topnav .in { overflow-x: auto; scrollbar-width: none; gap: 0; }
+    .topnav a.tab { padding: 6px 7px; font-size: 13px; } }`;
   const style = document.createElement("style");
   style.textContent = css;
   document.head.appendChild(style);
