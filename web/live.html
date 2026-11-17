@@ -228,6 +228,35 @@ tr.s:hover, tr.s.open { background: var(--hover); }
 .nz.above { color: var(--up); background: var(--accent-soft); }
 .nz.below { color: var(--down); background: var(--live-soft); }
 .rt.st td { white-space: nowrap; }
+.dtabs { display: flex; gap: 18px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.dtabs button { border: 0; border-radius: 0; background: none; padding: 9px 0 7px; color: var(--muted);
+  border-bottom: 2px solid transparent; font-size: 13px; cursor: pointer; }
+.dtabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); font-weight: 650; }
+.dtabs[hidden] { display: none; }
+.bet { cursor: pointer; }
+.bet:hover { background: var(--hover); }
+.bet .whylink { margin-top: 8px; font-size: 13px; color: var(--accent); }
+.why-head { font-size: 15px; margin: 0 0 6px; }
+.why-head b { font-weight: 680; }
+.track { position: relative; height: 18px; margin: 6px 0 2px; }
+.track .ln { position: absolute; left: 0; right: 0; top: 8px; height: 2px; background: var(--line); }
+.track .seg { position: absolute; top: 7px; height: 4px; border-radius: 2px; }
+.track .tk { position: absolute; top: 3px; width: 2px; height: 12px; margin-left: -1px; }
+.tkeys { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; color: var(--muted); }
+.tkeys i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: 0; }
+.wf { margin-top: 10px; font-size: 13px; }
+.wf .gh { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin: 8px 0 2px; }
+.wf .r { display: grid; grid-template-columns: minmax(0, 1fr) minmax(90px, 38%) 40px; gap: 8px; align-items: center; min-height: 21px; }
+.wf .r .l { overflow-wrap: anywhere; line-height: 1.25; padding: 2px 0; }
+.wf .r .l .sub { color: var(--muted); }
+.wf .dv { position: relative; height: 10px; }
+.wf .dv::before { content: ""; position: absolute; left: 50%; top: -5px; bottom: -5px; border-left: 1px solid var(--line); }
+.wf .dv span { position: absolute; top: 0; height: 10px; border-radius: 2px; }
+.wf .dv .up { background: var(--up); } .wf .dv .dn { background: var(--down); }
+.wf .n { text-align: right; font-variant-numeric: tabular-nums; }
+.doubt { background: var(--warn-soft); border-radius: 8px; padding: 9px 11px; margin-top: 12px; font-size: 13px; }
+.doubt h4 { margin: 0 0 4px; font-size: 13px; color: var(--warn); }
+.doubt ul { margin: 0; padding-left: 18px; } .doubt li { margin: 3px 0; }
 footer { color: var(--muted); font-size: 12px; padding-top: 18px; }
 footer p { margin: 4px 0; }
 </style>
@@ -301,7 +330,8 @@ footer p { margin: 4px 0; }
 <aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-labelledby="dtitle" aria-hidden="true">
   <div class="dhead"><div class="t"><div class="meta" id="dmeta"></div><div class="who" id="dtitle"></div><div class="score" id="dscore"></div></div>
     <button class="x" id="dclose" aria-label="Close match panel" title="Close (Esc)">×</button></div>
-  <div class="dbody" id="dbody"></div>
+  <div class="dtabs" id="dtabs" role="tablist" aria-label="Match panel" hidden></div>
+  <div class="dbody" id="dbody" role="tabpanel"></div>
 </aside>
 
 <script>
@@ -312,7 +342,7 @@ const STALE_DAYS = 120;
 const SETTLED_SHOWN = 12;
 const S = { data: null, sizing: null, seq: 0, tour: "all", status: "all", fresh: "all", minedge: 0, q: "", only: null,
             sort: { key: "edge", dir: -1 }, open: new Set(), allSettled: false, timer: null, fetching: false,
-            match: null, mdata: null, mseq: 0, merr: null };
+            match: null, mdata: null, mseq: 0, merr: null, tab: null };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pct = (x, d = 0) => x == null ? "–" : (100 * x).toFixed(d) + "%";
@@ -475,15 +505,20 @@ function renderBets(rows) {
   }
   sec.innerHTML = `<h2>Flagged bets <span class="n">${bets.length}</span></h2><div class="bets">` + bets.map((r) => {
     const dc = r.decision, on = dc.side === "a" ? r.a : r.b, other = dc.side === "a" ? r.b : r.a;
-    return `<div class="bet">
+    return `<div class="bet" data-ev="${esc(r.event)}" role="button" tabindex="0" aria-label="Why the model likes ${esc(on.name)}">
       <div class="meta">${esc(r.tour_label)} · ${esc(r.tournament || "")} · ${r.live ? '<span class="badge live">LIVE</span>' : esc(until(r.start, Date.now()) || "due")}</div>
       <div class="who">${esc(on.name)}</div>
       <div class="vs">vs ${esc(other.name)}</div>
       ${r.live && r.score ? `<div class="score" style="margin-top:4px">${esc(r.score.replace(/\s*\*[AB] serving/, ""))}${r.a_serving != null ? ` <span class="meta">· ${esc(lastName(r.a_serving === 1 ? r.a.name : r.b.name))} serving</span>` : ""}</div>` : ""}
       ${buyLines(r, dc)}
       <div class="meta" style="margin-top:6px">Win prob ${pct(dc.p_side)} · EV ${money(dc.ev)} · confidence ${r.conf == null ? "–" : pct(r.conf)} · edge ${r.edge == null ? "–" : (100 * r.edge).toFixed(1)} pts vs mid</div>
+      <div class="whylink">Why this bet →</div>
     </div>`;
   }).join("") + "</div>";
+  for (const el of sec.querySelectorAll(".bet[data-ev]")) {
+    el.onclick = () => openMatch(el.dataset.ev, "why");
+    el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openMatch(el.dataset.ev, "why"); } };
+  }
 }
 
 function pbar(r) {
@@ -664,7 +699,7 @@ function renderSettled(list) {
     (items.length > SETTLED_SHOWN ? `<button id="moreset" style="margin-top:8px">${S.allSettled ? "Show fewer" : `Show all ${items.length}`}</button>` : "");
   const more = $("#moreset");
   if (more) more.onclick = () => { S.allSettled = !S.allSettled; renderSettled(S.data.settled || []); };
-  for (const tr of $("#settled").querySelectorAll("tr.s")) tr.onclick = () => openMatch(tr.dataset.ev);
+  for (const tr of $("#settled").querySelectorAll("tr.s")) tr.onclick = () => openMatch(tr.dataset.ev, "after");
 }
 
 function renderAlerts(list) {
@@ -701,12 +736,14 @@ function save() {
   if (S.only) p.set("only", S.only);
   if (S.sort.key !== "edge" || S.sort.dir !== -1) p.set("sort", `${S.sort.key}:${S.sort.dir}`);
   if (S.match) p.set("m", S.match);
+  if (S.match && S.tab) p.set("t", S.tab);
   history.replaceState(null, "", p.toString() ? "#" + p.toString() : location.pathname);
 }
 function load() {
   const p = new URLSearchParams(location.hash.slice(1));
   const m = p.get("m");
   S.match = m && /^[A-Z0-9][A-Z0-9._-]{2,79}$/.test(m) ? m : null;
+  S.tab = TABS.some((t) => t.id === p.get("t")) ? p.get("t") : null;
   S.tour = p.get("tour") || "all"; S.status = p.get("status") || "all"; S.fresh = p.get("fresh") || "all";
   S.minedge = +p.get("edge") || 0; S.q = (p.get("q") || "").toLowerCase(); S.only = p.get("only") || null;
   const [k, dir] = (p.get("sort") || "edge:-1").split(":");
@@ -790,11 +827,13 @@ const signed = (x, d = 2) => x == null ? "–" : (x >= 0 ? "+" : "−") + Math.a
 const timeOf = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const cleanScore = (s) => String(s || "").replace(/\s*\*[AB] serving/, "");
 
-function openMatch(ev) {
-  if (S.match !== ev) { S.mdata = null; S.merr = null; }
-  S.match = ev; save(); render(); syncDrawer();
+// tab: the panel tab to show ("why" from a flagged bet, "after" from a settled row);
+// null keeps the default for the match (see panelTab).
+function openMatch(ev, tab = null) {
+  if (S.match !== ev) { S.mdata = null; S.merr = null; S.drawn = null; }
+  S.match = ev; S.tab = tab; save(); render(); syncDrawer();
 }
-function closeMatch() { S.match = null; S.mdata = null; S.hover = null; save(); render(); syncDrawer(); }
+function closeMatch() { S.match = null; S.mdata = null; S.hover = null; S.tab = null; save(); render(); syncDrawer(); }
 
 function syncDrawer() {
   const d = $("#drawer"), on = !!S.match;
@@ -842,16 +881,25 @@ function renderDrawer() {
   }
   const body = $("#dbody");
   if (!m) {
+    $("#dtabs").hidden = true;
     body.innerHTML = `<div class="status">${S.merr ? "Can't load this match: " + esc(S.merr) : "Loading…"}</div>`;
     return;
   }
-  const keep = S.drawn === m.event ? body.scrollTop : 0;      // a different match starts at the top
-  S.drawn = m.event;
-  body.innerHTML = PANEL_SECTIONS.map((sec) => {
+  const tabs = TABS.filter((t) => t.show(m));
+  const tab = panelTab(m);
+  const bar = $("#dtabs");
+  bar.hidden = tabs.length < 2;
+  bar.innerHTML = tabs.map((t) => `<button role="tab" id="tab-${t.id}" data-tab="${t.id}" aria-selected="${t.id === tab}" tabindex="${t.id === tab ? 0 : -1}">${esc(t.label)}</button>`).join("");
+  body.setAttribute("aria-labelledby", "tab-" + tab);
+  const key = m.event + "|" + tab;
+  const keep = S.drawn === key ? body.scrollTop : 0;      // another match or tab starts at the top
+  S.drawn = key;
+  body.innerHTML = PANEL_SECTIONS.filter((sec) => sec.tab === tab).map((sec) => {
     const html = sec.html(m, row);
     return html ? `<section class="dsec" data-sec="${sec.id}"><h3>${esc(typeof sec.title === "function" ? sec.title(m) : sec.title)}</h3>${html}</section>` : "";
   }).join("") + (S.merr ? `<div class="banner">Update failed: ${esc(S.merr)}</div>` : "");
   for (const sec of PANEL_SECTIONS) {
+    if (sec.tab !== tab) continue;
     const el = body.querySelector(`[data-sec="${sec.id}"]`);
     if (el && sec.after) sec.after(el, m, row);
   }
@@ -1068,8 +1116,107 @@ function afterMatch(m) {
     <div class="notes">Kalshi's final stats as reported; the model has no expectation for these. Service games = held + the opponent's breaks.</div>`;
 }
 
+// Tabs: "Why" (the model's price explained; first when there is one to explain),
+// "Match" (chart, ratings, live numbers), "After the match" (settled only). A flagged bet
+// opens "Why", a settled row "After the match", a live row "Match"; the choice is `t` in the URL.
+const TABS = [
+  { id: "why", label: "Why", show: (m) => !!m.why || S.tab === "why" },
+  { id: "match", label: "Match", show: () => true },
+  { id: "after", label: "After the match", show: (m) => !!m.after },
+];
+function panelTab(m) {
+  const ok = (id) => id && TABS.some((t) => t.id === id && t.show(m));
+  if (ok(S.tab)) return S.tab;
+  if (m.status === "settled" && m.after) return "after";
+  return "match";
+}
+$("#dtabs").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-tab]"); if (!b) return;
+  S.tab = b.dataset.tab; save(); renderDrawer();
+});
+$("#dtabs").addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+  const bs = [...$("#dtabs").querySelectorAll("button")], i = bs.indexOf(document.activeElement);
+  if (i < 0) return;
+  const n = bs[(i + (e.key === "ArrowRight" ? 1 : bs.length - 1)) % bs.length];
+  S.tab = n.dataset.tab; save(); renderDrawer(); $("#tab-" + S.tab)?.focus();
+});
+
+const RUST = { back1: "first match back after 12+ weeks off", back2_5: "2nd–5th match back from a 12+ week break",
+               gap5_12: "5–12 weeks since the last event" };
+function stepLabel(st, m, pre) {
+  const nm = (s) => lastName(s === "a" ? m.a.name : m.b.name);
+  const lg = (x) => (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(2);
+  switch (st.key) {
+    case "serve": return ["Serve ratings", `${nm("a")} ${lg(st.a)}, ${nm("b")} ${lg(st.b)} vs the tour mean (logits)`];
+    case "return": return ["Return ratings", `${nm("a")} ${lg(st.a)}, ${nm("b")} ${lg(st.b)} vs the tour mean (logits)`];
+    case "surface": return [`Surface${st.surface ? " (" + st.surface + ")" : ""}`, "Each player's surface deviation on serve and return"];
+    case "ctx": {
+      const f = st.feat || {};
+      if (st.group === "rust") { const t = Object.keys(f).map((k) => RUST[k]).filter(Boolean).join(", "); return [`${nm(st.side)}: ${t || "time off"}`, "Rust: the context offset for time away"]; }
+      if (st.group === "load") { const t = [f.gap1 ? "played last week" : "", f.load28 ? `${Math.round(5 * f.load28)} matches in the last 4 weeks` : ""].filter(Boolean).join(", "); return [`${nm(st.side)}: ${t || "recent load"}`, "Load: the context offset for recent matches"]; }
+      return [`${nm(st.side)}: age ${st.age != null ? Math.floor(st.age) : "?"}`, "Age: the context offset on serve and return"];
+    }
+    case "other": return ["Other context", "Context steps under half a point, together"];
+    case "doubt": return ["Rating doubt", `The model's shrink toward 50% for its own rating uncertainty (serve logit SD ${st.sd_a.toFixed(2)} / ${st.sd_b.toFixed(2)})`];
+    case "calib": return ["Calibration", `The fitted calibration (alpha ${st.alpha.toFixed(2)})`];
+    case "score": return [`Score ${cleanScore(st.score) || "so far"}`, "The roll-up from the current score at the pre-match serve rates; in-play prices are uncalibrated, so this also takes calibration off"];
+    case "form_a": case "form_b": { const s = st.key.slice(-1), p = st.pts || [0, 0]; return [`${nm(s)}'s serve today ${p[0]}/${p[1]}`, `In-match form of ${nm(s)}'s serve stream (${signed(st.form)} on the logit)`]; }
+  }
+  return [st.key, ""];
+}
+function whyTab(m) {
+  const w = m.why;
+  if (!w) return `<div class="meta" style="white-space:normal">No breakdown recorded for this match: the watch records one for every priced match from 17 Nov 2026 on.</div>`;
+  const side = w.side || "a", sg = side === "a" ? 1 : -1, sp = (p) => p == null ? null : (side === "a" ? p : 1 - p);
+  const who = side === "a" ? m.a.name : m.b.name;
+  const pm = sp(w.p_model), mk = sp(w.p_market);
+  const steps = w.explain.steps;
+  const first = steps[0], pre = steps.find((s) => s.key === "calib");
+  const gap = pm != null && mk != null ? pm - mk : null;
+  const pts = (x) => { const v = 100 * x, a = Math.abs(v); return (v >= 0 ? "+" : "−") + (a < 9.95 ? a.toFixed(1) : a.toFixed(0)); };
+  // rows in the bet side's terms; context steps under half a point merge
+  let rows = [], small = 0;
+  for (const st of steps.slice(1)) {
+    const d = sg * st.d;
+    if (st.key === "ctx" && Math.abs(d) < 0.005) { small += d; continue; }
+    rows.push({ st, d, inplay: ["score", "form_a", "form_b"].includes(st.key) });
+  }
+  if (Math.abs(small) > 0) rows.splice(rows.findIndex((r) => r.st.key === "doubt"), 0, { st: { key: "other" }, d: small, inplay: false });
+  const scale = Math.max(...rows.map((r) => Math.abs(r.d)), 1e-9);
+  const row = (r) => {
+    const [label, tip] = stepLabel(r.st, m), wd = (50 * Math.abs(r.d) / scale).toFixed(1);
+    const bar = r.d >= 0 ? `<span class="up" style="left:50%;width:${wd}%"></span>` : `<span class="dn" style="left:${(50 - wd).toFixed(1)}%;width:${wd}%"></span>`;
+    return `<div class="r" title="${esc(label + (tip ? ": " + tip : ""))}"><span class="l">${esc(label)}</span><div class="dv">${bar}</div><span class="n">${pts(r.d)}</span></div>`;
+  };
+  const grp = (name, rs) => rs.length ? `<div class="gh"><span>${name}, ${pts(rs.reduce((a, r) => a + r.d, 0))}</span></div>` + rs.map(row).join("") : "";
+  const preRows = rows.filter((r) => !r.inplay), playRows = rows.filter((r) => r.inplay);
+  // the summary track, in the bet side's probability
+  const marks = [[sp(first.p), "var(--muted)", "even"], [sp(pre.p), "var(--mkt)", "pre-match"]];
+  if (mk != null) marks.push([mk, "var(--down)", "market"]);
+  if (w.explain.in_play) marks.push([pm, "var(--text)", "now"]);
+  const vals = marks.map((x) => x[0]), lo = Math.max(0, Math.min(...vals) - 0.05), hi = Math.min(1, Math.max(...vals) + 0.05);
+  const X = (p) => (100 * (p - lo) / (hi - lo)).toFixed(1) + "%";
+  const endP = w.explain.in_play ? pm : sp(pre.p);
+  const track = `<div class="track" aria-hidden="true"><div class="ln"></div>
+      <div class="seg" style="left:${X(Math.min(sp(first.p), endP))};width:calc(${X(Math.max(sp(first.p), endP))} - ${X(Math.min(sp(first.p), endP))});background:var(--model)"></div>
+      ${marks.map(([p, c]) => `<div class="tk" style="left:${X(p)};background:${c}"></div>`).join("")}</div>
+    <div class="tkeys">${marks.map(([p, c, l]) => `<span><i style="background:${c}"></i>${pct(p)} ${l}</span>`).join("")}</div>`;
+  const head = `<div class="why-head">Model <b>${pct(pm)}</b> on ${esc(lastName(who))}, market <b>${pct(mk)}</b>${gap != null ? `: <b>${pts(gap)} pts</b>` : ""}</div>`;
+  const doubts = (w.doubts || []).length ? `<div class="doubt"><h4>Reasons to doubt it</h4><ul>${w.doubts.map((d) => `<li>${esc(d.text)}</li>`).join("")}</ul></div>` : "";
+  const pol = w.policy_text ? `<h3 style="margin-top:14px">What the policy does</h3><div style="font-size:13px">${esc(w.policy_text)}</div>
+      ${S.sizing && S.data && S.data.sizing && S.data.sizing.custom ? '<div class="notes">The watch\'s own sizing, not the bankroll and Kelly set on this page.</div>' : ""}` : "";
+  return head + track
+    + `<div class="wf">${grp("Pre-match", preRows)}${grp("In play", playRows)}</div>`
+    + `<div class="notes">Points of win probability for ${esc(lastName(who))}. Each row re-prices the model with one more input, in this order; bars scale to the largest row. Hover a row for detail.</div>`
+    + doubts + pol
+    + `<div class="notes">${esc(w.model || "")} · from the poll at ${esc(timeOf(w.as_of))}${w.in_play ? " (in play)" : w.status === "not_started" ? " (before the start)" : ""}.</div>`;
+}
+
 const PANEL_SECTIONS = [
-  { id: "chart", title: (m) => `P(${lastName(m.a.name)} wins) over the match`,
+  { id: "why", tab: "why", title: (m) => m.why && m.why.side ? `Why the model likes ${lastName(m.why.side === "a" ? m.a.name : m.b.name)}` : "Why the model's price",
+    html: (m) => whyTab(m) },
+  { id: "chart", tab: "match", title: (m) => `P(${lastName(m.a.name)} wins) over the match`,
     html: (m) => `<div class="chart"></div>
       <div class="legend" style="margin-top:6px">
         <span><i style="width:16px;height:0;border-top:2px solid var(--model)"></i>Model</span>
@@ -1079,7 +1226,7 @@ const PANEL_SECTIONS = [
         <span><i style="width:0;height:12px;border-left:1px dashed var(--text)"></i>Set end</span>
       </div>${m.polls.some((p) => p.p_sd != null) ? "" : '<div class="notes">No ±1 SD recorded for these polls (older watch).</div>'}`,
     after: (el, m) => drawChart(el, m) },
-  { id: "pre", title: "Going into the match",
+  { id: "pre", tab: "match", title: "Going into the match",
     html: (m) => {
       const p = m.pre, r = p.ratings || {};
       const pm = p.p_model ?? r.p_prematch, sd = p.p_sd ?? r.p_sd_pre;
@@ -1091,10 +1238,10 @@ const PANEL_SECTIONS = [
         <div class="notes">${p.as_of ? `Last poll before the start, ${esc(dayClock(p.as_of))}.` : "No poll before the start was recorded."}</div>
         <div style="margin-top:10px">${ratingsTable(m)}</div>`;
     } },
-  { id: "after", title: "After the match", html: (m) => afterMatch(m) },
-  { id: "inplay", title: "In play", html: (m) => servePts(m) },
-  { id: "market", title: "Market and policy now", html: (m, row) => row ? `<div class="dgrid">${detailItems(derive(row)).map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div>` : "" },
-  { id: "about", title: "Match", html: (m) => `<div class="notes" style="margin-top:0">${esc(m.event)} · scheduled ${m.start ? esc(dayClock(m.start)) : "?"} · ${m.started_at ? "first live poll " + esc(dayClock(m.started_at)) + " · " : ""}${m.polls.length} polls recorded. Breaks and set ends are read from the recorded score; when polls miss games only the breaks the game counts guarantee are shown.</div>` },
+  { id: "after", tab: "after", title: "After the match", html: (m) => afterMatch(m) },
+  { id: "inplay", tab: "match", title: "In play", html: (m) => servePts(m) },
+  { id: "market", tab: "match", title: "Market and policy now", html: (m, row) => row ? `<div class="dgrid">${detailItems(derive(row)).map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div>` : "" },
+  { id: "about", tab: "match", title: "Match", html: (m) => `<div class="notes" style="margin-top:0">${esc(m.event)} · scheduled ${m.start ? esc(dayClock(m.start)) : "?"} · ${m.started_at ? "first live poll " + esc(dayClock(m.started_at)) + " · " : ""}${m.polls.length} polls recorded. Breaks and set ends are read from the recorded score; when polls miss games only the breaks the game counts guarantee are shown.</div>` },
 ];
 
 $("#dclose").addEventListener("click", closeMatch);

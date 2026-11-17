@@ -35,6 +35,11 @@ touched by the in-play update; with a player index, each carries its rank (1 = b
 serve / return) among the tour's players rated in the year before the match, and `ref` holds that
 population's mean ratings (the ratings are not centred: an average player is not 0).
 
+`explain` (engine/explain.py): the probability built up step by step from two tour-average
+players (serve, return, surface, context per player and group, rating doubt, calibration;
+in play: score, each stream's form), the steps summing to the output. `ctx_c_a` /
+`ctx_c_b`: each player's context feature vector (context.FEATURES).
+
 `stale`: a player's last rated match is more than 120 days before the match (or there is
 none). A query dated before the latest replayed edition gets a note: its ratings already
 include later results (use `as_of` for a point-in-time prediction).
@@ -58,6 +63,7 @@ from pathlib import Path
 
 from .. import calibrate, context, markov, matches, models_db, points_rating
 from ..kalshi import LiveState
+from . import explain as explain_mod
 from . import players as players_mod
 from . import state as state_mod
 from .predictor import MatchQuery, Prediction
@@ -143,12 +149,14 @@ class PointsPredictor:
     """A Predictor (engine.predictor) for points_v1-family runs."""
 
     def __init__(self, model: ModelState, *, calibrated: bool = True, live_form: bool = True,
-                 form_var: float = points_rating.IN_PLAY_FORM_VAR, max_stale_days: int = STALE_DAYS):
+                 form_var: float = points_rating.IN_PLAY_FORM_VAR, max_stale_days: int = STALE_DAYS,
+                 explain: bool = True):
         self.model = model
         self.calibrated = calibrated
         self.live_form = live_form
         self.form_var = form_var
         self.max_stale_days = max_stale_days
+        self.explain = explain
         tag = f"run{model.run_id}" if model.run_id is not None else "unrecorded"
         self.name = f"{model.model_id}/{tag}" + (f"@{model.as_of}" if model.as_of else "") \
             + ("" if calibrated else "/raw")
@@ -253,12 +261,14 @@ class PointsPredictor:
             raise ValueError("player_a and player_b are the same player")
         xa, xb, va, vb = points_rating.matchup(st, a, b, q.tour, surface, rating_day)
         oa = ob = 0.0
+        ca = cb = None
         if p.has_context():
             d0 = date.fromisoformat(rating_day).toordinal()
             c = context.features_from_states(md.ctx_states, md.dob, {a: (q.edition_id, d0), b: (q.edition_id, d0)})
             bs, br = p.context_betas(q.tour)
             oa = float(c[a] @ bs - c[b] @ br)
             ob = float(c[b] @ bs - c[a] @ br)
+            ca, cb = [float(v) for v in c[a]], [float(v) for v in c[b]]
             xa, xb = xa + oa, xb + ob
         p_raw = points_rating.win_probability(st, xa, xb, va, vb, q.best_of, q.final)
         cal = self.calibrated and q.tour not in p.raw_tours()
@@ -281,7 +291,7 @@ class PointsPredictor:
                 "rating_b": {k: rb[k] for k in RATING_KEYS if k in rb},
                 "serve_a": _sig(xa), "serve_b": _sig(xb), "p_raw": p_raw, "p_prematch": p_cal,
                 "alpha": alpha, "rating_day": rating_day, "surface": surface,
-                "best_of": q.best_of, "final": q.final}
+                "best_of": q.best_of, "final": q.final, "ctx_c_a": ca, "ctx_c_b": cb}
 
     def predict(self, q: MatchQuery) -> Prediction:
         md, st = self.model, self.model.state
@@ -332,6 +342,9 @@ class PointsPredictor:
                 d.update(x_a_live=xa, x_b_live=xb, v_a_live=va, v_b_live=vb,
                          serve_a_live=_sig(xa), serve_b_live=_sig(xb), form=self.live_form)
                 notes.append("in play: not calibrated")
+        if self.explain:
+            live_x = (d["x_a_live"], d["x_b_live"], d["v_a_live"], d["v_b_live"]) if in_play else None
+            d["explain"] = explain_mod.explain(md, q, d, live if in_play else None, live_x)
         return Prediction(p_a=p_out, p_raw=p_raw, in_play=in_play, model=self.name, stale=stale,
                           notes=notes, detail=d)
 

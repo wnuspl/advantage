@@ -331,7 +331,7 @@ def match_view(con: sqlite3.Connection, event: str, now: datetime | None = None)
     pre-match block (each player's ratings going into the match as the predictor recorded
     them, the last pre-match model and market), the settlement, if any, and for a settled
     match with final stats `after` (after_match: final stats vs the pre-match expectation, the
-    model's final read of each serve stream)."""
+    model's final read of each serve stream); `why` (why_view: the latest price explained)."""
     now = now or datetime.now(timezone.utc)
     e = con.execute("SELECT * FROM event WHERE event = ?", (event,)).fetchone()
     if e is None:
@@ -373,6 +373,7 @@ def match_view(con: sqlite3.Connection, event: str, now: datetime | None = None)
             "status": "settled" if st else (polls[-1]["status"] if polls else None),
             "started_at": None if started is None else polls[started]["as_of"],
             "polls": polls, "marks": marks, "pre": pre, "after": after,
+            "why": _round(why_view(con, event, e, json.loads(pm["detail"]) if pm is not None else None)),
             "settlement": None if st is None else {
                 "winner": st["winner"], "final_score": st["final_score"], "match_status": st["match_status"],
                 "seen_at": st["seen_at"]}}
@@ -466,3 +467,119 @@ def after_match(details: dict | None, a_comp: str, b_comp: str, pre: dict | None
                        for s in ("a", "b")}
         out["form"]["model"], out["form"]["form_var"] = form["model"], form.get("form_var")
     return out
+
+
+# ---------------------------------------------------------------------------- why this price
+
+STALE_DAYS = 120          # the policy's stale cut (engine.predict.STALE_DAYS)
+OLD_DAYS = 60             # mentioned as a doubt from here on
+CHALLENGER_SERIES = ("KXATPCHALLENGERMATCH", "KXWTACHALLENGERMATCH")
+
+
+def _last(name: str) -> str:
+    """The page's lastName(): everything after the first name ('Niels Peter van Noord' ->
+    'Peter van Noord')."""
+    p = (name or "").split()
+    return " ".join(p[1:]) if len(p) > 1 else (p[0] if p else "")
+
+
+def doubts(names: dict, snap: dict, explain: dict | None, ratings: dict | None, series: str,
+           side: str | None) -> list[dict]:
+    """Reasons not to trust the model's price, each {kind, text}. names: {'a', 'b'};
+    snap: the snapshot row (p_model, p_market, p_sd, status, a_stale_days, b_stale_days);
+    explain: the explain block; ratings: the prematch detail (rating_a / rating_b with
+    `seen`), or None; side: the side the model likes ('a' / 'b')."""
+    out = []
+    for s in ("a", "b"):
+        r = (ratings or {}).get("rating_" + s) or {}
+        days = snap.get(s + "_stale_days")
+        if r.get("seen") is False:
+            out.append({"kind": "new", "text": f"{names[s]} has no rated match: the model rates them as a new "
+                                                "player (a prior), not on results."})
+        elif days is not None and days > STALE_DAYS:
+            out.append({"kind": "stale", "text": f"{names[s]}'s last rated match was {days} days before this one: "
+                                                  "the market may know about injuries, form or results the model "
+                                                  "hasn't seen (the policy doesn't bet on stale ratings)."})
+        elif days is not None and days > OLD_DAYS:
+            out.append({"kind": "old", "text": f"{names[s]}'s last rated match was {days} days ago."})
+    if series in CHALLENGER_SERIES:
+        out.append({"kind": "data", "text": "Challenger-level results after May 2026 aren't in the ratings yet, "
+                                            "so these players' ratings can lag their current level."})
+    pm, mk, sd = snap.get("p_model"), snap.get("p_market"), snap.get("p_sd")
+    if sd:
+        txt = f"The ratings' own uncertainty alone moves the model ±{100 * sd:.0f} pts"
+        if pm is not None and mk is not None and abs(pm - mk) < 2 * sd:
+            txt += f", and the gap to the market ({100 * abs(pm - mk):.0f} pts) is inside 2 SD of it"
+        out.append({"kind": "sd", "text": txt + ". That covers rating noise only, not model error."})
+    if explain and side and pm is not None and mk is not None and abs(pm - mk) > 0:
+        gap = abs(pm - mk)
+        sign = 1 if side == "a" else -1
+        for st in explain.get("steps", []):
+            if st.get("key") == "ctx" and st.get("group") == "rust" and st.get("d"):
+                d = sign * st["d"]
+                if d > 0 and d >= gap / 3:
+                    who = names[st["side"]]
+                    out.append({"kind": "rust", "text": f"{100 * d:.0f} pts of the edge come from {who}'s time off "
+                                f"(rust). If {_last(who)} played events the data doesn't have, that part isn't real."})
+    if snap.get("status") == "live":
+        out.append({"kind": "lag", "text": "In play: Kalshi's score feed lags the court by an unknown amount, "
+                                           "and the market may already know the next points."})
+    return out
+
+
+def policy_text(names: dict, dec: dict | None, pol: dict | None) -> str | None:
+    """What the watch's policy does with the price, in words (its own policy, not the
+    viewer's sizing overrides)."""
+    if dec is None or pol is None:
+        return None
+    if dec.get("p_use") is None:
+        return f"No bet: {dec.get('reason') or 'not priced'}."
+    w = pol.get("model_weight", 1.0)
+    pa = f"{100 * dec['p_use']:.1f}% for {_last(names['a'])}"
+    lead = (f"The policy blends model and market (weight {w:g} on the model, in log-odds): {pa}" if w < 1 else
+            f"The policy uses the model alone: {pa}")
+    if not dec.get("contracts"):
+        return f"{lead}. No bet: {dec.get('reason') or 'no edge after spread and fees'}."
+    nm = names[dec["side"]]
+    lead += f", so {100 * dec['p_side']:.1f}% for {_last(nm)}" if dec["side"] == "b" else ""
+    return (f"{lead}. The cheapest {_last(nm)} contract is "
+            f"{dec['ask']:.2f}; {pol.get('kelly', 0.25):g} Kelly on a ${pol.get('bankroll', 0):g} bankroll buys "
+            f"{dec['contracts']} for ${dec['cost']:.2f} plus ${dec.get('fees') or 0:.2f} fees, expected profit "
+            f"${dec['ev']:.2f}. Hold it: the alerts say sell only if the model flips sides.")
+
+
+def why_view(con: sqlite3.Connection, event: str, e, ratings: dict | None) -> dict | None:
+    """The match panel's "Why" tab: the latest explain block with the snapshot and decision
+    of the poll it came from, the reasons to doubt it, and the policy in words. None when
+    the match was never explained (unpriced, or recorded before 2026-11-17)."""
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'explain'").fetchone():
+        return None
+    x = con.execute("SELECT * FROM explain WHERE event = ?", (event,)).fetchone()
+    if x is None:
+        return None
+    cols = {r[1] for r in con.execute("PRAGMA table_info(snapshot)")}
+    sd = "s.p_sd" if "p_sd" in cols else "NULL AS p_sd"
+    r = con.execute(
+        f"""SELECT p.as_of, s.status, s.score, s.p_model, s.p_market, {sd}, s.ask_a, s.ask_b, s.a_stale_days,
+                   s.b_stale_days, d.side, d.p_use, d.p_side, d.ask, d.contracts, d.cost, d.fees, d.ev, d.reason
+            FROM snapshot s JOIN poll p USING (poll_id)
+            LEFT JOIN decision d ON d.poll_id = s.poll_id AND d.event = s.event
+            WHERE s.event = ? AND s.poll_id = ?""", (event, x["poll_id"])).fetchone()
+    if r is None:
+        return None
+    snap = dict(r)
+    w = con.execute("SELECT w.policy FROM watch w JOIN poll p USING (watch_id) WHERE p.poll_id = ?",
+                    (x["poll_id"],)).fetchone()
+    pol = json.loads(w[0]) if w else None
+    ex = json.loads(x["detail"])
+    names = {"a": e["a_name"], "b": e["b_name"]}
+    dec = None if snap["reason"] is None else {k: snap[k] for k in ("side", "p_use", "p_side", "ask", "contracts",
+                                                                     "cost", "fees", "ev", "reason")}
+    pm, mk = snap["p_model"], snap["p_market"]
+    side = (dec or {}).get("side") or (None if pm is None or mk is None or pm == mk else ("a" if pm > mk else "b"))
+    return {"as_of": snap["as_of"], "status": x["status"], "in_play": bool(x["in_play"]), "model": x["model"],
+            "score": snap["score"], "p_model": pm, "p_market": mk, "p_sd": snap["p_sd"], "side": side,
+            "explain": ex, "decision": dec,
+            "policy": None if pol is None else {k: pol.get(k) for k in ("bankroll", "kelly", "model_weight", "in_play")},
+            "policy_text": policy_text(names, dec, pol),
+            "doubts": doubts(names, snap, ex, ratings, e["series"], side)}

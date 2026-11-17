@@ -134,6 +134,7 @@ class Recorder:
                 self.con.execute(f"INSERT INTO snapshot ({', '.join(SNAP_COLS)}) VALUES "
                                  f"({', '.join('?' * len(SNAP_COLS))})", _snapshot_row(pid, s))
                 self._prematch(pid, s)
+                self._explain(pid, s)
             for d in decisions:
                 sz = d.sizing
                 self.con.execute(
@@ -174,6 +175,22 @@ class Recorder:
         else:
             self.con.execute("INSERT OR IGNORE INTO prematch (event, poll_id, model, status, detail) "
                              "VALUES (?,?,?,?,?)", row)
+
+    def _explain(self, poll_id: int, s: MarketSnapshot) -> None:
+        """The latest explain block: replaced by each pre-match or in-play pricing, never
+        by one that priced a live match without its score (the in-play one stays)."""
+        pr = s.prediction
+        ex = (pr.detail or {}).get("explain") if pr else None
+        if not ex or s.status not in ("not_started", "live"):
+            return
+        if s.status == "live" and not pr.in_play:
+            return
+        self.con.execute(
+            """INSERT INTO explain (event, poll_id, model, status, in_play, detail) VALUES (?,?,?,?,?,?)
+               ON CONFLICT (event) DO UPDATE SET poll_id = excluded.poll_id, model = excluded.model,
+                 status = excluded.status, in_play = excluded.in_play, detail = excluded.detail""",
+            (s.event.event, poll_id, pr.model, s.status, int(bool(ex.get("in_play"))),
+             json.dumps(ex, ensure_ascii=False, separators=(",", ":"))))
 
     def record_alerts(self, poll_id: int, alerts) -> None:
         """engine.alerts.Alert list for one poll."""

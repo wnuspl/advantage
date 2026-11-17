@@ -172,3 +172,16 @@ CREATE TABLE IF NOT EXISTS final_form (
   form_a REAL NOT NULL, form_b REAL NOT NULL,
   serve_a_form REAL NOT NULL, serve_b_form REAL NOT NULL
 ) STRICT;
+
+-- Why the model gives its price (added 2026-11-17): the predictor's latest `explain` block
+-- per match (engine/explain.py: P(A) built step by step from two tour-average players),
+-- from the last poll that priced it before the start or in play (a poll that priced it
+-- without the live score does not replace an in-play one). Upserted, not appended.
+CREATE TABLE IF NOT EXISTS explain (
+  event    TEXT PRIMARY KEY REFERENCES event(event),
+  poll_id  INTEGER NOT NULL REFERENCES poll(poll_id),
+  model    TEXT NOT NULL,
+  status   TEXT NOT NULL,                  -- the snapshot status it was taken at
+  in_play  INTEGER NOT NULL,
+  detail   TEXT NOT NULL                   -- JSON: Prediction.detail['explain']
+) STRICT;
